@@ -476,9 +476,6 @@ export function DashboardPage() {
                   <th className="hidden px-6 py-3.5 font-semibold md:table-cell">
                     Date
                   </th>
-                  <th className="hidden px-6 py-3.5 font-semibold lg:table-cell">
-                    Method
-                  </th>
                   <th className="px-6 py-3.5 text-right font-semibold">Amount</th>
                   <th className="px-6 py-3.5 text-right font-semibold">Status</th>
                 </tr>
@@ -496,9 +493,6 @@ export function DashboardPage() {
                     <td className="px-6 py-4 font-medium">{t.beneficiary}</td>
                     <td className="hidden px-6 py-4 text-muted-foreground md:table-cell">
                       {t.date}
-                    </td>
-                    <td className="hidden px-6 py-4 text-muted-foreground lg:table-cell">
-                      {t.method}
                     </td>
                     <td className="px-6 py-4 text-right font-bold tabular-nums tracking-tight">
                       <span className={t.type === 'Credit' ? 'text-emerald-600' : 'text-foreground'}>

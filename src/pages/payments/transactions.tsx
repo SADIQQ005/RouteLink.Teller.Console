@@ -164,7 +164,6 @@ export function TransactionsPage() {
                 <TableHead>Account</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Method</TableHead>
                 <TableHead>Date</TableHead>
               </TableRow>
             </TableHeader>
@@ -172,7 +171,7 @@ export function TransactionsPage() {
               {isLoading
                 ? Array.from({ length: 6 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 8 }).map((__, j) => (
+                      {Array.from({ length: 7 }).map((__, j) => (
                         <TableCell key={j}>
                           <Skeleton
                             className={cn(
@@ -188,7 +187,7 @@ export function TransactionsPage() {
 
               {!isLoading && filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8}>
+                  <TableCell colSpan={7}>
                     <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
                       <div className="flex size-12 items-center justify-center rounded-lg border bg-muted/40 text-muted-foreground">
                         {query || status !== 'All' ? (
@@ -250,9 +249,6 @@ export function TransactionsPage() {
                         >
                           {t.status}
                         </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {t.method}
                       </TableCell>
                       <TableCell className="text-[12.5px] text-muted-foreground">
                         {new Date(t.date).toLocaleDateString('en-GB', {
