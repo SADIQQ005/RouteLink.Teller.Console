@@ -91,7 +91,6 @@ const schema = z.object({
     .string()
     .regex(/^\d{10}$/, 'Enter a valid 10-digit account number'),
   bank: z.string().min(1, 'Select the beneficiary bank'),
-  currency: z.enum(['NGN', 'USD']),
   amount: z.coerce
     .number({ invalid_type_error: 'Enter the transfer amount' })
     .positive('Amount must be greater than zero'),
@@ -111,7 +110,6 @@ const defaultValues: FormValues = {
   beneficiaryName: '',
   accountNumber: '',
   bank: '',
-  currency: 'NGN',
   amount: undefined as unknown as number,
   narration: '',
 }
@@ -130,7 +128,6 @@ export function NewTransactionPage() {
   })
 
   const amount = form.watch('amount')
-  const currency = form.watch('currency')
   const bank = form.watch('bank')
   const accountNumber = form.watch('accountNumber')
   const beneficiaryName = form.watch('beneficiaryName')
@@ -192,7 +189,7 @@ export function NewTransactionPage() {
         description: values.narration || 'Bank account transfer',
         account: values.sourceAccount,
         amount: values.amount,
-        currency: values.currency,
+        currency: 'NGN',
         type: 'Debit',
         method: 'Bank Transfer',
         initiatedBy: `${user.firstName} ${user.lastName}`,
@@ -227,7 +224,7 @@ export function NewTransactionPage() {
         description="Transfer funds from a branch account to any bank account in Nigeria."
       />
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,520px)_340px] xl:justify-center">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,520px)_340px] xl:justify-between">
         <Card>
           <CardHeader className="border-b pb-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -405,54 +402,31 @@ export function NewTransactionPage() {
                     <h3 className="text-sm font-semibold">Amount</h3>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-[170px_1fr]">
-                    <FormField
-                      control={form.control}
-                      name="currency"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Currency *</FormLabel>
-                          <FormControl>
-                            <Select onValueChange={field.onChange} value={field.value}>
-                              <SelectTrigger className="w-full">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="NGN">₦ NGN — Naira</SelectItem>
-                                <SelectItem value="USD">$ USD — Dollar</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="amount"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Transfer amount *</FormLabel>
-                          <FormControl>
-                            <div className="flex h-10 items-center gap-3 rounded-md border bg-card px-4 focus-within:border-primary focus-within:ring-[3px] focus-within:ring-ring/40">
-                              <span className="text-xl font-bold text-foreground/50">
-                                {currency === 'USD' ? '$' : '₦'}
-                              </span>
-                              <input
-                                {...field}
-                                type="number"
-                                min={1}
-                                step="0.01"
-                                placeholder="0.00"
-                                className="h-9 w-full bg-transparent text-xl font-bold tracking-tight outline-none placeholder:text-muted-foreground/60"
-                              />
-                            </div>
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
+                  <FormField
+                    control={form.control}
+                    name="amount"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Transfer amount *</FormLabel>
+                        <FormControl>
+                          <div className="flex h-10 items-center gap-3 rounded-md border bg-card px-4 focus-within:border-primary focus-within:ring-[3px] focus-within:ring-ring/40">
+                            <span className="text-xl font-bold text-foreground/50">
+                              ₦
+                            </span>
+                            <input
+                              {...field}
+                              type="number"
+                              min={1}
+                              step="0.01"
+                              placeholder="0.00"
+                              className="h-9 w-full bg-transparent text-xl font-bold tracking-tight outline-none placeholder:text-muted-foreground/60"
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
                   <div className="flex flex-wrap gap-2">
                     {QUICK_AMOUNTS.map((q) => (
@@ -610,20 +584,20 @@ export function NewTransactionPage() {
               <div className="flex items-center justify-between">
                 <span className="text-white/60">Amount</span>
                 <span className="font-medium text-white">
-                  {amount ? formatCurrency(Number(amount), currency) : '—'}
+                  {amount ? formatCurrency(Number(amount)) : '—'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-white/60">Bank transfer fee (0.5%)</span>
                 <span className="font-medium text-white">
-                  {amount ? formatCurrency(fee, currency) : '—'}
+                  {amount ? formatCurrency(fee) : '—'}
                 </span>
               </div>
               <Separator className="bg-white/10" />
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-white">Total debit</span>
                 <span className="text-xl font-bold tabular-nums text-orange">
-                  {amount ? formatCurrency(total, currency) : '—'}
+                  {amount ? formatCurrency(total) : '—'}
                 </span>
               </div>
             </CardContent>
