@@ -43,6 +43,7 @@ export interface ApprovalItem {
   submittedAt: string
   method: string
   narration: string
+  documents?: string[]
 }
 
 export interface UserRecord {
@@ -293,6 +294,7 @@ let approvals: ApprovalItem[] = [
     sourceAccount: '0001733301',
     beneficiaryAccount: '2091112223',
     beneficiaryBank: 'Zenith Bank Plc',
+    documents: ['dangote-invoice-INV-2241.pdf', 'supply-agreement-signed.pdf'],
   },
   {
     id: 'app_02',
@@ -311,6 +313,7 @@ let approvals: ApprovalItem[] = [
     sourceAccount: '0007733309',
     beneficiaryAccount: '0123412205',
     beneficiaryBank: 'Access Bank Plc',
+    documents: ['reversal-memo-RT-0826.pdf'],
   },
   {
     id: 'app_03',
@@ -329,6 +332,7 @@ let approvals: ApprovalItem[] = [
     sourceAccount: '0001234021',
     beneficiaryAccount: '2130447718',
     beneficiaryBank: 'First Bank of Nigeria',
+    documents: ['premium-remittance-q3.pdf', 'insurance-debit-note.pdf'],
   },
   {
     id: 'app_04',
@@ -347,6 +351,7 @@ let approvals: ApprovalItem[] = [
     sourceAccount: '0001234021',
     beneficiaryAccount: '1012033344',
     beneficiaryBank: 'Union Bank Plc',
+    documents: ['statutory-levy-assessment.pdf'],
   },
   {
     id: 'app_05',
@@ -365,6 +370,7 @@ let approvals: ApprovalItem[] = [
     sourceAccount: '0007733309',
     beneficiaryAccount: '0178801221',
     beneficiaryBank: 'GTBank Plc',
+    documents: ['settlement-schedule-GLV-0411.pdf'],
   },
   {
     id: 'app_06',
@@ -383,6 +389,7 @@ let approvals: ApprovalItem[] = [
     sourceAccount: '0001733301',
     beneficiaryAccount: '0288791120',
     beneficiaryBank: 'Sterling Bank Plc',
+    documents: ['fleet-policy-certificate.pdf'],
   },
   {
     id: 'app_07',
@@ -401,6 +408,7 @@ let approvals: ApprovalItem[] = [
     sourceAccount: '0007733309',
     beneficiaryAccount: '0112258890',
     beneficiaryBank: 'Wema Bank Plc',
+    documents: ['interbank-settlement-schedule.pdf'],
   },
 ]
 

@@ -7,7 +7,9 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsUp,
+  Download,
   Eye,
+  FileText,
   Inbox,
   Layers,
   ShieldAlert,
@@ -313,7 +315,7 @@ export function ApprovalQueuePage() {
             </Button>
           </div>
 
-          <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
+          <div className="rounded-lg border bg-muted/30 px-3 py-2 my-2 text-xs font-medium text-muted-foreground">
             {selectedIds.length === 0
               ? 'Select one or more items to approve or reject in bulk. Click the eye icon to view full request details.'
               : `${selectedIds.length} item${selectedIds.length === 1 ? '' : 's'} selected · ${formatCurrency(
@@ -337,7 +339,6 @@ export function ApprovalQueuePage() {
                   <TableHead className="hidden lg:table-cell">Initiated by</TableHead>
                   <TableHead className="hidden xl:table-cell">Submitted</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="hidden md:table-cell">Authority</TableHead>
                   <TableHead className="hidden md:table-cell">Priority</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
@@ -346,7 +347,7 @@ export function ApprovalQueuePage() {
                 {isLoading &&
                   [1, 2, 3, 4, 5].map((i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 9 }).map((_, j) => (
+                      {Array.from({ length: 8 }).map((_, j) => (
                         <TableCell key={j}>
                           <Skeleton className="h-6 w-20" />
                         </TableCell>
@@ -357,7 +358,7 @@ export function ApprovalQueuePage() {
                 {!isLoading && visible.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={9}
+                      colSpan={8}
                       className="py-10 text-center text-muted-foreground"
                     >
                       <Inbox className="mx-auto mb-2 size-8" />
@@ -404,26 +405,6 @@ export function ApprovalQueuePage() {
                         </TableCell>
                         <TableCell className="text-right font-semibold tabular-nums">
                           {formatCurrency(a.amount, a.currency)}
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell">
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1">
-                              {Array.from({ length: a.requiredTier }).map(
-                                (_, i) => (
-                                  <span
-                                    key={i}
-                                    className={cn(
-                                      'h-1.5 w-4 rounded-full',
-                                      i < a.tier ? 'bg-primary' : 'bg-border',
-                                    )}
-                                  />
-                                ),
-                              )}
-                            </div>
-                            <span className="text-xs text-muted-foreground">
-                              {a.tier}/{a.requiredTier}
-                            </span>
-                          </div>
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
                           <Badge
@@ -626,6 +607,48 @@ export function ApprovalQueuePage() {
               </div>
 
               <Separator />
+
+              <div className="grid gap-2.5">
+                <div className="flex items-center gap-2">
+                  <FileText className="size-4 text-primary" />
+                  <h4 className="text-sm font-semibold">
+                    Supporting documents
+                  </h4>
+                </div>
+                {detail.documents?.length ? (
+                  <ul className="grid gap-2">
+                    {detail.documents.map((doc) => (
+                      <li
+                        key={doc}
+                        className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2.5"
+                      >
+                        <FileText className="size-4.5 shrink-0 text-primary" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{doc}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 gap-1.5 px-2.5 text-xs"
+                          aria-label={`View ${doc}`}
+                          onClick={() =>
+                            toast.info(`${doc} — document preview`,
+                              { description: 'This is a placeholder action in the demo.' },
+                            )
+                          }
+                        >
+                          <Download className="size-3.5" />
+                          View
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No supporting documents attached.
+                  </p>
+                )}
+              </div>
 
               <div className="flex items-start gap-3 rounded-lg border bg-muted/30 px-3.5 py-3 text-xs text-muted-foreground">
                 <User className="mt-0.5 size-4 shrink-0 text-primary" />
