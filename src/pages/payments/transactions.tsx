@@ -1,8 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  ArrowDownLeft,
-  ArrowUpRight,
   FileSearch,
   Inbox,
   Plus,
@@ -161,7 +159,6 @@ export function TransactionsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Reference</TableHead>
-                <TableHead>Type</TableHead>
                 <TableHead>Beneficiary</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead>Account</TableHead>
@@ -175,7 +172,7 @@ export function TransactionsPage() {
               {isLoading
                 ? Array.from({ length: 6 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 9 }).map((__, j) => (
+                      {Array.from({ length: 8 }).map((__, j) => (
                         <TableCell key={j}>
                           <Skeleton
                             className={cn(
@@ -191,7 +188,7 @@ export function TransactionsPage() {
 
               {!isLoading && filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9}>
+                  <TableCell colSpan={8}>
                     <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
                       <div className="flex size-12 items-center justify-center rounded-lg border bg-muted/40 text-muted-foreground">
                         {query || status !== 'All' ? (
@@ -222,24 +219,6 @@ export function TransactionsPage() {
                     <TableRow key={t.id}>
                       <TableCell className="font-mono text-[12.5px] font-medium">
                         {t.reference}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            'size-6 gap-1.5 border-transparent px-2 py-1 font-semibold',
-                            t.type === 'Credit'
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : 'bg-rose-50 text-rose-700',
-                          )}
-                        >
-                          {t.type === 'Credit' ? (
-                            <ArrowDownLeft className="size-3.5" />
-                          ) : (
-                            <ArrowUpRight className="size-3.5" />
-                          )}
-                          {t.type}
-                        </Badge>
                       </TableCell>
                       <TableCell className="font-medium">
                         {t.beneficiary}
