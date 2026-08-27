@@ -221,15 +221,15 @@ export function NewTransactionPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="New Transaction"
         description="Transfer funds from a branch account to any bank account in Nigeria."
       />
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_340px]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,520px)_340px] xl:justify-center">
         <Card>
-          <CardHeader className="border-b pb-4">
+          <CardHeader className="border-b pb-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="bg-primary/10 px-2.5 py-1 text-primary">
                 <CircleDollarSign className="size-3" /> Bank account transfer
@@ -242,14 +242,14 @@ export function NewTransactionPage() {
               Complete the steps below — fields marked * are required.
             </CardDescription>
           </CardHeader>
-          <CardContent className="pt-6">
+          <CardContent className="pt-4">
             <Form {...form}>
               <form
                 onSubmit={form.handleSubmit(onSubmit)}
-                className="grid gap-7"
+                className="grid gap-4"
               >
                 {/* Source */}
-                <section className="grid gap-3">
+                <section className="grid gap-2">
                   <div className="flex items-center gap-2.5">
                     <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
                       1
@@ -282,7 +282,7 @@ export function NewTransactionPage() {
                 <Separator />
 
                 {/* Beneficiary */}
-                <section className="grid gap-3">
+                <section className="grid gap-2">
                   <div className="flex items-center justify-between gap-2.5">
                     <div className="flex items-center gap-2.5">
                       <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
@@ -397,7 +397,7 @@ export function NewTransactionPage() {
                 <Separator />
 
                 {/* Amount */}
-                <section className="grid gap-3">
+                <section className="grid gap-2">
                   <div className="flex items-center gap-2.5">
                     <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
                       3
@@ -471,7 +471,7 @@ export function NewTransactionPage() {
                 <Separator />
 
                 {/* Narration */}
-                <section className="grid gap-3">
+                <section className="grid gap-2">
                   <div className="flex items-center gap-2.5">
                     <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
                       4
@@ -486,7 +486,7 @@ export function NewTransactionPage() {
                         <FormControl>
                           <Textarea
                             {...field}
-                            rows={3}
+                            rows={2}
                             placeholder="Optional description shown to the beneficiary…"
                           />
                         </FormControl>
@@ -502,7 +502,7 @@ export function NewTransactionPage() {
                 <Separator />
 
                 {/* Supporting documents */}
-                <section className="grid gap-3">
+                <section className="grid gap-2">
                   <div className="flex items-center gap-2.5">
                     <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
                       5
@@ -512,7 +512,7 @@ export function NewTransactionPage() {
 
                   <label
                     className={cn(
-                      'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-6 py-8 text-center transition-colors',
+                      'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-4 text-center transition-colors',
                       documents.length >= MAX_DOCS ? 'opacity-50' : 'hover:border-primary hover:bg-primary/5',
                     )}
                   >
@@ -527,7 +527,7 @@ export function NewTransactionPage() {
                         e.target.value = ''
                       }}
                     />
-                    <UploadCloud className="size-7 text-primary" />
+                    <UploadCloud className="size-6 text-primary" />
                     <p className="text-sm font-medium">
                       Click to upload supporting documents
                     </p>
@@ -573,7 +573,7 @@ export function NewTransactionPage() {
           </CardContent>
         </Card>
 
-        <div className="space-y-4 xl:sticky xl:top-20">
+        <div className="space-y-3 xl:sticky xl:top-20">
           <Card className="bg-space-grey text-sidebar-foreground">
             <CardHeader className="border-b border-white/10">
               <CardTitle className="flex items-center gap-2 text-[15px] text-white">
