@@ -155,7 +155,7 @@ function SidebarNav() {
   }, [user.access])
 
   const initialExpanded = useMemo(() => {
-    const s = new Set<string>(['Payments', 'Account'])
+    const s = new Set<string>(['Payments'])
     navGroups.flatMap((g) => g.items).forEach((item) => {
       if (
         item.children?.some(

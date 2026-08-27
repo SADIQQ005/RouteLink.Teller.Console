@@ -21,7 +21,7 @@ import { useAppDispatch } from '@/store'
 import { toggleSidebar } from '@/store/slices/ui-slice'
 
 const BREADCRUMBS: Record<string, { crumbs: string[]; title: string }> = {
-  '/': { crumbs: ['Dashboard'], title: 'Dashboard' },
+  '/dashboard': { crumbs: ['Dashboard'], title: 'Dashboard' },
   '/payments/new': {
     crumbs: ['Payments', 'New Transaction'],
     title: 'New Transaction',

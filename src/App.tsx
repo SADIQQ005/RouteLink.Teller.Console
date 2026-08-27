@@ -77,7 +77,11 @@ export default function App() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route
-          path="/"
+          index
+          element={<Navigate to="/payments/new" replace />}
+        />
+        <Route
+          path="dashboard"
           element={
             <LazyPage>
               <DashboardPage />

@@ -31,7 +31,7 @@ export const navGroups: NavGroup[] = [
     items: [
       {
         title: 'Dashboard',
-        path: '/',
+        path: '/dashboard',
         icon: LayoutDashboard,
       },
     ],
