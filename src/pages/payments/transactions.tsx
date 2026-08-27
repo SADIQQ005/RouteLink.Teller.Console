@@ -132,7 +132,7 @@ export function TransactionsPage() {
                   type="button"
                   onClick={() => setStatus(s)}
                   className={cn(
-                    'inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[12.5px] font-semibold transition-colors',
+                    'inline-flex h-8 items-center gap-1.5 rounded-lg border my-3 px-3 text-[12.5px] font-semibold transition-colors',
                     status === s
                       ? 'border-primary/30 bg-primary/10 text-primary'
                       : 'border-border bg-card text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground',

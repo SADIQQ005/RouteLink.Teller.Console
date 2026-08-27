@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import {
+  AlertCircle,
   ArrowRight,
   BadgeCheck,
   CircleDollarSign,
@@ -121,6 +122,7 @@ export function NewTransactionPage() {
   const [enquiring, setEnquiring] = useState(false)
   const [enquiryName, setEnquiryName] = useState<string | null>(null)
   const [documents, setDocuments] = useState<UploadedDoc[]>([])
+  const [docsError, setDocsError] = useState<string | null>(null)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -180,9 +182,18 @@ export function NewTransactionPage() {
         size: f.size,
       })),
     ])
+    setDocsError(null)
   }
 
   function onSubmit(values: FormValues) {
+    if (documents.length === 0) {
+      setDocsError('Upload at least one supporting document')
+      toast.error('Supporting document required', {
+        description:
+          'Add an invoice, mandate or approval letter before submitting.',
+      })
+      return
+    }
     createTx.mutate(
       {
         beneficiary: values.beneficiaryName,
@@ -206,6 +217,7 @@ export function NewTransactionPage() {
           })
           form.reset(defaultValues)
           setDocuments([])
+          setDocsError(null)
           setEnquiryName(null)
         },
         onError: () => {
@@ -481,13 +493,16 @@ export function NewTransactionPage() {
                     <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
                       5
                     </span>
-                    <h3 className="text-sm font-semibold">Supporting documents</h3>
+                    <h3 className="text-sm font-semibold">Supporting documents *</h3>
                   </div>
 
                   <label
                     className={cn(
                       'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-4 text-center transition-colors',
-                      documents.length >= MAX_DOCS ? 'opacity-50' : 'hover:border-primary hover:bg-primary/5',
+                      documents.length >= MAX_DOCS
+                        ? 'opacity-50'
+                        : 'hover:border-primary hover:bg-primary/5',
+                      docsError && 'border-destructive/70 bg-destructive/5',
                     )}
                   >
                     <input
@@ -510,6 +525,16 @@ export function NewTransactionPage() {
                       {MAX_DOCS} files · max 5 MB each
                     </p>
                   </label>
+
+                  {docsError ? (
+                    <p
+                      role="alert"
+                      className="flex items-center gap-1.5 text-xs font-semibold text-destructive"
+                    >
+                      <AlertCircle className="size-3.5 shrink-0" />
+                      {docsError}
+                    </p>
+                  ) : null}
 
                   {documents.length > 0 && (
                     <ul className="grid gap-2">

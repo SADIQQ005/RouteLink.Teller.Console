@@ -328,14 +328,6 @@ export function ApprovalQueuePage() {
                 </button>
               ))}
             </div>
-            <Button
-              variant="outline"
-              disabled={selectedItems.length === 0}
-              onClick={() => approveMany(selectedItems)}
-            >
-              <CheckCheck className="size-4" />
-              Approve selected
-            </Button>
           </div>
 
           <div className="rounded-lg border bg-muted/30 px-3 py-2 my-3 text-xs font-medium text-muted-foreground">
