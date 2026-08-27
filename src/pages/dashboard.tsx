@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -6,7 +7,6 @@ import {
   ChevronRight,
   Download,
   FileText,
-  Filter,
   Plus,
   RefreshCw,
   Sparkles,
@@ -36,6 +36,8 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/ui/page-header'
 import { useApprovals, useDashboardStats, useTransactions } from '@/hooks/use-api'
+import type { DashboardStats, Transaction } from '@/lib/data'
+import { downloadCsv } from '@/lib/download'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useAppSelector } from '@/store'
@@ -77,6 +79,47 @@ function getInitials(name: string) {
     .slice(0, 2)
     .join('')
     .toUpperCase()
+}
+
+function exportReport({
+  stats,
+  transactions,
+}: {
+  stats?: DashboardStats
+  transactions?: Transaction[]
+}) {
+  const stamp = new Date().toISOString().slice(2, 10).replace(/-/g, '')
+  const rows = [
+    {
+      'Available balance (NGN)': stats?.balance ?? '',
+      'Inflow today (NGN)': stats?.inflowToday ?? '',
+      'Outflow today (NGN)': stats?.outflowToday ?? '',
+      'Pending approvals': stats?.pendingApprovals ?? '',
+      'Inflow delta %': stats?.inflowDelta ?? '',
+      'Outflow delta %': stats?.outflowDelta ?? '',
+      'Approval delta': stats?.approvalDelta ?? '',
+      'Generated at': new Date().toLocaleString('en-GB'),
+    },
+  ]
+  downloadCsv(`routelink-report-${stamp}.csv`, [
+    ...rows,
+    ...(transactions ?? []).map((t) => ({
+      section: 'Recent transaction',
+      reference: t.reference,
+      beneficiary: t.beneficiary,
+      description: t.description,
+      method: t.method,
+      type: t.type,
+      amount: t.amount,
+      currency: t.currency,
+      status: t.status,
+      initiated_by: t.initiatedBy,
+      date: t.date,
+    })),
+  ])
+  toast.success('Report exported', {
+    description: 'CSV report downloaded to your device.',
+  })
 }
 
 function StatCard({
@@ -187,7 +230,10 @@ export function DashboardPage() {
         title={`${greeting}, ${user.firstName} 👋`}
         description={`${today} — Here's what's happening across your teller console today.`}
       >
-        <Button variant="outline">
+        <Button
+          variant="outline"
+          onClick={() => exportReport({ stats, transactions: recent })}
+        >
           <Download className="size-4" />
           Export report
         </Button>
@@ -413,10 +459,6 @@ export function DashboardPage() {
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm">
-              <Filter className="size-3.5" />
-              Filter
-            </Button>
             <Button variant="ghost" size="sm" asChild>
               <Link to="/payments/transactions">
                 View all <ChevronRight className="size-3.5" />

@@ -4,12 +4,10 @@ import {
   CheckCheck,
   ChevronRight,
   Menu,
-  Search,
   TriangleAlert,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { GlobalSearch } from '@/components/layout/global-search'
 import { useAppDispatch } from '@/store'
 import { toggleSidebar } from '@/store/slices/ui-slice'
 
@@ -129,22 +128,7 @@ export function SiteHeader({ pathname }: { pathname: string }) {
       <PageBreadcrumb pathname={pathname} />
 
       <div className="ml-auto flex items-center gap-3">
-        <div className="relative hidden md:block">
-          <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground/60" />
-          <Input
-            placeholder="Search transactions, users…"
-            className="h-10 w-60 pl-10 bg-background/60 backdrop-blur-sm border-border/60"
-          />
-        </div>
-
-        <Button
-          variant="ghost"
-          size="icon"
-          className="md:hidden shrink-0"
-          aria-label="Search"
-        >
-          <Search className="size-5" />
-        </Button>
+        <GlobalSearch />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
