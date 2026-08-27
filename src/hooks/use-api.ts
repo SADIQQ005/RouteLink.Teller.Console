@@ -83,7 +83,8 @@ export function useResolveApproval() {
       id: string
       decision: 'approve' | 'reject'
       reason?: string
-    }) => api.resolveApproval(args.id, args.decision),
+      password?: string
+    }) => api.resolveApproval(args.id, args.decision, args.password),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.approvals })
       queryClient.invalidateQueries({ queryKey: queryKeys.stats })

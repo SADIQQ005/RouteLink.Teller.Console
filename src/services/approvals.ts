@@ -9,6 +9,11 @@ export function resolveApproval(
   id: string,
   decision: 'approve' | 'reject',
   reason?: string,
+  password?: string,
 ): Promise<unknown> {
-  return http.post<unknown>(`/approvals/${id}/resolve`, { decision, reason })
+  return http.post<unknown>(`/approvals/${id}/resolve`, {
+    decision,
+    reason,
+    password,
+  })
 }

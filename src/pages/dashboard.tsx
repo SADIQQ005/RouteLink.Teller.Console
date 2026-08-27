@@ -1,16 +1,15 @@
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
-  ArrowDownLeft,
-  ArrowUpRight,
   CheckCheck,
   ChevronRight,
   Download,
   FileText,
   Plus,
   RefreshCw,
+  ShieldAlert,
   Sparkles,
-  Wallet,
   Zap,
 } from 'lucide-react'
 import {
@@ -42,15 +41,33 @@ import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useAppSelector } from '@/store'
 
-const CASH_FLOW = [
-  { day: 'Thu', inflow: 12.4, outflow: 8.1 },
-  { day: 'Fri', inflow: 15.2, outflow: 10.6 },
-  { day: 'Sat', inflow: 9.8, outflow: 6.2 },
-  { day: 'Sun', inflow: 7.1, outflow: 4.4 },
-  { day: 'Mon', inflow: 18.6, outflow: 13.9 },
-  { day: 'Tue', inflow: 21.3, outflow: 15.2 },
-  { day: 'Wed', inflow: 25.4, outflow: 18.2 },
-]
+const HIGH_PRIORITY_AMOUNT = 1_000_000
+
+function buildVolumeData(transactions?: Transaction[]) {
+  const today = new Date()
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today)
+    d.setDate(today.getDate() - (6 - i))
+    return {
+      label: d.toLocaleDateString('en-US', { weekday: 'short' }),
+      dateKey: d.toLocaleDateString('en-GB'),
+      count: 0,
+    }
+  })
+  let total = 0
+  transactions?.forEach((t) => {
+    const txDate = new Date(t.date)
+    if (!Number.isNaN(txDate.getTime())) {
+      const key = txDate.toLocaleDateString('en-GB')
+      const day = days.find((d) => d.dateKey === key)
+      if (day) {
+        day.count += 1
+        total += 1
+      }
+    }
+  })
+  return { days, total }
+}
 
 const PRIORITY_TONE = {
   High: 'bg-gradient-to-b from-red-100 to-red-50 text-red-700 border border-red-200/70',
@@ -122,98 +139,32 @@ function exportReport({
   })
 }
 
-function StatCard({
-  label,
-  value,
-  delta,
-  deltaPositive,
-  icon: Icon,
-  tone,
-  loading,
-  badge,
-}: {
-  label: string
-  value: string
-  delta?: string
-  deltaPositive?: boolean
-  icon: typeof Wallet
-  tone: string
-  loading: boolean
-  badge?: string
-}) {
-  return (
-    <Card className="gap-0 overflow-hidden relative animate-fade-in-up">
-      <div className="absolute inset-0 opacity-[0.015] pointer-events-none bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-from:_transparent),_transparent_70%)]" />
-      <CardContent className="relative flex flex-col gap-4 py-5">
-        <div className="flex items-center justify-between">
-          <span className="text-[12.5px] font-semibold tracking-[0.02em] text-muted-foreground uppercase">
-            {label}
-          </span>
-          <div className="flex items-center gap-2">
-            {badge ? (
-              <Badge
-                variant="outline"
-                className="h-5 border-primary/20 bg-primary/10 px-2 py-0 text-[11px] font-bold text-primary"
-              >
-                {badge}
-              </Badge>
-            ) : null}
-            <span
-              className={cn(
-                'flex size-9 items-center justify-center rounded-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]',
-                tone,
-              )}
-            >
-              <Icon className="size-[18px]" />
-            </span>
-          </div>
-        </div>
-        {loading ? (
-          <Skeleton className="h-9 w-40 rounded-lg" />
-        ) : (
-          <p className="text-[30px] font-bold tracking-tight tabular-nums leading-[1.1]">
-            {value}
-          </p>
-        )}
-        {delta ? (
-          <span
-            className={cn(
-              'inline-flex w-fit items-center gap-1.5 text-[12px] font-bold',
-              deltaPositive ? 'text-emerald-600' : 'text-muted-foreground',
-            )}
-          >
-            <span
-              className={cn(
-                'flex size-4.5 items-center justify-center rounded-full',
-                deltaPositive
-                  ? 'bg-gradient-to-b from-emerald-100 to-emerald-50 text-emerald-600'
-                  : 'bg-gradient-to-b from-muted to-muted/60 text-muted-foreground',
-              )}
-            >
-              {deltaPositive ? (
-                <ArrowUpRight className="size-3" />
-              ) : (
-                <ArrowDownLeft className="size-3" />
-              )}
-            </span>
-            {delta} <span className="text-muted-foreground/70 font-medium">vs yesterday</span>
-          </span>
-        ) : (
-          <span className="inline-flex w-fit items-center gap-1.5 text-[12px] font-medium text-muted-foreground">
-            <Sparkles className="size-3.5 text-primary/70" />
-            Liquidity position · updated now
-          </span>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
 export function DashboardPage() {
   const { data: stats, isLoading } = useDashboardStats()
   const { data: recent } = useTransactions()
   const { data: approvals } = useApprovals()
   const user = useAppSelector((state) => state.auth.user)
+
+  const { days: volume, total: volumeTotal } = useMemo(
+    () => buildVolumeData(recent),
+    [recent],
+  )
+
+  const todayKey = new Date().toLocaleDateString('en-GB')
+
+  const { dayVolume, pendingCount, highPriorityCount } = useMemo(() => {
+    const todayTx =
+      recent?.filter((t) => {
+        const d = new Date(t.date)
+        return !Number.isNaN(d.getTime()) && d.toLocaleDateString('en-GB') === todayKey
+      }) ?? []
+    const dayVolume = todayTx.reduce((sum, t) => sum + t.amount, 0)
+    const pendingCount =
+      recent?.filter((t) => t.status === 'Pending').length ?? 0
+    const highPriorityCount =
+      recent?.filter((t) => t.amount >= HIGH_PRIORITY_AMOUNT).length ?? 0
+    return { dayVolume, pendingCount, highPriorityCount }
+  }, [recent, todayKey])
 
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
@@ -245,64 +196,93 @@ export function DashboardPage() {
         </Button>
       </PageHeader>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Available Balance"
-          value={formatCurrency(stats?.balance ?? 0, 'NGN', true)}
-          icon={Wallet}
-          tone="bg-gradient-to-b from-primary/15 to-primary/8 text-primary"
-          loading={isLoading}
-          badge="Head Office"
-        />
-        <StatCard
-          label="Inflow Today"
-          value={formatCurrency(stats?.inflowToday ?? 0, 'NGN', true)}
-          delta={stats ? `+${stats.inflowDelta}%` : undefined}
-          deltaPositive
-          icon={ArrowDownLeft}
-          tone="bg-gradient-to-b from-emerald-100 to-emerald-50 text-emerald-600"
-          loading={isLoading}
-        />
-        <StatCard
-          label="Outflow Today"
-          value={formatCurrency(stats?.outflowToday ?? 0, 'NGN', true)}
-          delta={stats ? `${stats.outflowDelta}%` : undefined}
-          icon={ArrowUpRight}
-          tone="bg-gradient-to-b from-amber-100 to-amber-50 text-amber-700"
-          loading={isLoading}
-        />
-        <StatCard
-          label="Pending Approvals"
-          value={stats ? String(stats.pendingApprovals) : '—'}
-          delta={stats ? `+${stats.approvalDelta} new` : undefined}
-          icon={CheckCheck}
-          tone="bg-gradient-to-b from-sky-100 to-sky-50 text-sky-600"
-          loading={isLoading}
-          badge={stats && stats.pendingApprovals > 0 ? 'Action needed' : undefined}
-        />
+      {/* Transaction snapshot hero */}
+      <div className="relative overflow-hidden rounded-xl border bg-gradient-to-br from-panel-lavender via-panel-lavender-soft to-card p-6 sm:p-7 animate-fade-in-up">
+        <div className="pointer-events-none absolute -right-16 -top-16 size-56 rounded-full bg-white/40 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 right-32 size-64 rounded-full bg-primary/10 blur-3xl" />
+
+        <div className="relative flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <Badge
+              variant="outline"
+              className="gap-1.5 border-panel-lavender-ink/20 bg-white/60 text-panel-lavender-ink"
+            >
+              <Sparkles className="size-3" />
+              Transaction snapshot
+            </Badge>
+            <h2 className="mt-3 text-xl font-bold tracking-tight sm:text-2xl">
+              {pendingCount} transaction{pendingCount === 1 ? '' : 's'} awaiting action
+            </h2>
+            <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+              Transactions routed for review and sign off before they move to
+              processing.
+            </p>
+          </div>
+          <div className="flex w-full items-baseline justify-between gap-2 sm:w-auto sm:flex-col sm:items-end">
+            <span className="text-xs font-medium text-panel-lavender-ink/80">
+              Total volume today
+            </span>
+            <span className="text-2xl font-bold tabular-nums tracking-tight">
+              {formatCurrency(dayVolume)}
+            </span>
+          </div>
+        </div>
+
+        <div className="relative mt-5 grid grid-cols-2 gap-3">
+          {[
+            {
+              label: 'Awaiting your action',
+              value: String(pendingCount),
+              icon: CheckCheck,
+              tone: 'bg-primary/15 text-primary',
+            },
+            {
+              label: 'High priority',
+              value: String(highPriorityCount),
+              icon: ShieldAlert,
+              tone: 'bg-red-100 text-red-600',
+            },
+          ].map((s) => (
+            <div
+              key={s.label}
+              className="flex items-center gap-3 rounded-xl border border-white/70 bg-white/70 p-3.5 backdrop-blur-sm"
+            >
+              <span
+                className={cn(
+                  'flex size-9 shrink-0 items-center justify-center rounded-lg',
+                  s.tone,
+                )}
+              >
+                <s.icon className="size-4.5" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-lg font-bold leading-none tabular-nums">
+                  {isLoading ? '…' : s.value}
+                </p>
+                <p className="mt-1 truncate text-[11px] font-medium text-muted-foreground">
+                  {s.label}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <Card className="xl:col-span-2 gap-0 overflow-hidden animate-fade-in-up">
           <CardHeader className="flex-row items-center justify-between gap-4 pb-2">
             <div>
-              <CardTitle className="text-[16px]">Cash Flow</CardTitle>
+              <CardTitle className="text-[16px]">Transaction Volume</CardTitle>
               <CardDescription className="pt-1">
-                Inflows and outflows · last 7 days · ₦ millions
+                {volumeTotal} transaction{volumeTotal === 1 ? '' : 's'} · last 7 days
               </CardDescription>
             </div>
             <div className="flex items-center gap-3">
               <Badge
                 variant="outline"
-                className="h-7 gap-1.5 border-emerald-200 bg-emerald-50 px-3 text-[11.5px] font-bold text-emerald-700"
+                className="h-7 gap-1.5 border-primary/20 bg-primary/10 px-3 text-[11.5px] font-bold text-primary"
               >
-                <span className="size-2 rounded-full bg-emerald-500" /> Inflow
-              </Badge>
-              <Badge
-                variant="outline"
-                className="h-7 gap-1.5 border-orange-200 bg-orange-50 px-3 text-[11.5px] font-bold text-orange-700"
-              >
-                <span className="size-2 rounded-full bg-orange-500" /> Outflow
+                <span className="size-2 rounded-full bg-primary" /> Volume
               </Badge>
               <Button variant="ghost" size="icon-sm">
                 <RefreshCw className="size-3.5" />
@@ -312,28 +292,24 @@ export function DashboardPage() {
           <CardContent className="pt-2">
             <div className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={CASH_FLOW} margin={{ top: 12, right: 12, left: -24, bottom: 4 }}>
+                <AreaChart data={volume} margin={{ top: 12, right: 12, left: -24, bottom: 4 }}>
                   <defs>
-                    <linearGradient id="inflow" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="volume" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="oklch(0.68 0.18 50)" stopOpacity={0.32} />
                       <stop offset="60%" stopColor="oklch(0.68 0.18 50)" stopOpacity={0.06} />
                       <stop offset="100%" stopColor="oklch(0.68 0.18 50)" stopOpacity={0} />
                     </linearGradient>
-                    <linearGradient id="outflow" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#2a2d31" stopOpacity={0.14} />
-                      <stop offset="60%" stopColor="#2a2d31" stopOpacity={0.04} />
-                      <stop offset="100%" stopColor="#2a2d31" stopOpacity={0} />
-                    </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="4 4" stroke="var(--border)" vertical={false} />
                   <XAxis
-                    dataKey="day"
+                    dataKey="label"
                     axisLine={false}
                     tickLine={false}
                     tick={{ fontSize: 12, fill: 'var(--muted-foreground)', fontWeight: 600 }}
                     dy={10}
                   />
                   <YAxis
+                    allowDecimals={false}
                     axisLine={false}
                     tickLine={false}
                     tick={{ fontSize: 11.5, fill: 'var(--muted-foreground)', fontWeight: 500 }}
@@ -349,24 +325,19 @@ export function DashboardPage() {
                       padding: '10px 14px',
                       fontWeight: 600,
                     }}
-                    formatter={(value) => [`₦${value}m`, ''] as const}
+                    formatter={(value) => {
+                      const n = typeof value === 'number' ? value : Number(value) || 0
+                      return [`${n} transaction${n === 1 ? '' : 's'}`, ''] as const
+                    }}
                   />
                   <Area
                     type="monotone"
-                    dataKey="inflow"
+                    dataKey="count"
                     stroke="oklch(0.68 0.18 50)"
                     strokeWidth={2.5}
-                    fill="url(#inflow)"
+                    fill="url(#volume)"
                     dot={{ r: 3, strokeWidth: 2, stroke: '#fff', fill: 'oklch(0.68 0.18 50)' }}
                     activeDot={{ r: 6, strokeWidth: 3, stroke: '#fff', fill: 'oklch(0.68 0.18 50)' }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="outflow"
-                    stroke="#2a2d31"
-                    strokeWidth={2}
-                    fill="url(#outflow)"
-                    dot={{ r: 2.5, strokeWidth: 2, stroke: '#fff', fill: '#2a2d31' }}
                   />
                 </AreaChart>
               </ResponsiveContainer>

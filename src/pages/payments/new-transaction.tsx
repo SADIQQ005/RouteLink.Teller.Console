@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
@@ -63,8 +63,6 @@ const banks = [
 
 const FEE_RATE = 0.005
 
-const QUICK_AMOUNTS = [100000, 250000, 1000000, 5000000]
-
 const ENQUIRY_NAMES = [
   'Alhaji Musa Ibrahim Stores',
   'Chinedu Okafor & Co.',
@@ -115,6 +113,20 @@ const defaultValues: FormValues = {
   narration: '',
 }
 
+function formatAmountInput(value: number | undefined): string {
+  if (value === undefined || value === null || Number.isNaN(value)) return ''
+  return new Intl.NumberFormat('en-NG', {
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
+function parseAmountInput(raw: string): number | undefined {
+  const cleaned = raw.replace(/[^\d.]/g, '')
+  if (cleaned === '' || cleaned === '.') return undefined
+  const num = Number(cleaned)
+  return Number.isNaN(num) ? undefined : num
+}
+
 export function NewTransactionPage() {
   const user = useAppSelector((state) => state.auth.user)
   const createTx = useCreateTransaction()
@@ -123,6 +135,7 @@ export function NewTransactionPage() {
   const [enquiryName, setEnquiryName] = useState<string | null>(null)
   const [documents, setDocuments] = useState<UploadedDoc[]>([])
   const [docsError, setDocsError] = useState<string | null>(null)
+  const [amountDisplay, setAmountDisplay] = useState('')
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -138,12 +151,6 @@ export function NewTransactionPage() {
   const canEnquire = bank.length > 0 && accountNumber.length === 10
   const fee = Number.isFinite(Number(amount)) ? Number(amount) * FEE_RATE : 0
   const total = Number.isFinite(Number(amount)) ? Number(amount) + fee : 0
-
-  const reference = useMemo(
-    () =>
-      `TRX-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`,
-    [],
-  )
 
   async function handleEnquiry() {
     const valid = await form.trigger(['bank', 'accountNumber'])
@@ -197,7 +204,7 @@ export function NewTransactionPage() {
     createTx.mutate(
       {
         beneficiary: values.beneficiaryName,
-        description: values.narration || 'Bank account transfer',
+        description: values.narration || 'Bank transfer',
         account: values.sourceAccount,
         amount: values.amount,
         currency: 'NGN',
@@ -216,6 +223,10 @@ export function NewTransactionPage() {
             }.`,
           })
           form.reset(defaultValues)
+          form.resetField('amount', {
+            defaultValue: '' as unknown as number,
+          })
+          setAmountDisplay('')
           setDocuments([])
           setDocsError(null)
           setEnquiryName(null)
@@ -241,10 +252,8 @@ export function NewTransactionPage() {
           <CardHeader className="border-b pb-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="bg-primary/10 px-2.5 py-1 text-primary">
-                <CircleDollarSign className="size-3" /> Bank account transfer
+                <CircleDollarSign className="size-3" /> Bank transfer
               </Badge>
-              <Badge variant="secondary">Draft · {reference}</Badge>
-              <Badge variant="secondary">{user.tier} · Maker</Badge>
             </div>
             <CardTitle className="pt-2">Transfer details</CardTitle>
             <CardDescription>
@@ -336,7 +345,7 @@ export function NewTransactionPage() {
                       name="accountNumber"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Account / wallet number *</FormLabel>
+                          <FormLabel>Account number *</FormLabel>
                           <FormControl>
                             <Input
                               {...field}
@@ -426,10 +435,20 @@ export function NewTransactionPage() {
                               ₦
                             </span>
                             <input
-                              {...field}
-                              type="number"
-                              min={1}
-                              step="0.01"
+                              ref={field.ref}
+                              name={field.name}
+                              type="text"
+                              inputMode="decimal"
+                              value={amountDisplay}
+                              onBlur={(e) => {
+                                setAmountDisplay(formatAmountInput(parseAmountInput(e.target.value)))
+                                field.onBlur()
+                              }}
+                              onChange={(e) => {
+                                const raw = e.target.value
+                                setAmountDisplay(raw)
+                                field.onChange(parseAmountInput(raw))
+                              }}
                               placeholder="0.00"
                               className="h-9 w-full bg-transparent text-xl font-bold tracking-tight outline-none placeholder:text-muted-foreground/60"
                             />
@@ -439,19 +458,6 @@ export function NewTransactionPage() {
                       </FormItem>
                     )}
                   />
-
-                  <div className="flex flex-wrap gap-2">
-                    {QUICK_AMOUNTS.map((q) => (
-                      <button
-                        key={q}
-                        type="button"
-                        onClick={() => form.setValue('amount', q, { shouldValidate: true })}
-                        className="rounded-full border bg-card px-3.5 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-                      >
-                        {formatCurrency(q, 'NGN', true)}
-                      </button>
-                    ))}
-                  </div>
                 </section>
 
                 <Separator />
@@ -592,10 +598,6 @@ export function NewTransactionPage() {
                 <span className="max-w-[150px] truncate text-right font-medium text-white">
                   {beneficiaryName || '—'}
                 </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-white/60">Reference</span>
-                <span className="font-medium text-white">{reference}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-white/60">Attachments</span>

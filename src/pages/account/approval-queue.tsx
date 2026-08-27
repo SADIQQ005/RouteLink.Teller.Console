@@ -6,12 +6,11 @@ import {
   CheckCheck,
   ChevronLeft,
   ChevronRight,
-  ChevronsUp,
   Download,
   Eye,
   FileText,
   Inbox,
-  Layers,
+  KeyRound,
   ShieldAlert,
   Sparkles,
   User,
@@ -31,6 +30,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
@@ -52,9 +52,9 @@ import { downloadBlob } from '@/lib/download'
 import { cn } from '@/lib/utils'
 import type { ApprovalItem } from '@/lib/data'
 
-type Filter = 'All' | 'High priority' | 'Tier 2' | 'Tier 3'
+type Filter = 'All' | 'High priority' | 'Medium priority' | 'Low priority'
 
-const FILTERS: Filter[] = ['All', 'High priority', 'Tier 2', 'Tier 3']
+const FILTERS: Filter[] = ['All', 'High priority', 'Medium priority', 'Low priority']
 
 const PAGE_SIZE = 5
 
@@ -120,11 +120,11 @@ export function ApprovalQueuePage() {
   const [detail, setDetail] = useState<ApprovalItem | null>(null)
   const [rejectTargets, setRejectTargets] = useState<ApprovalItem[]>([])
   const [rejectReason, setRejectReason] = useState('')
+  const [approveTargets, setApproveTargets] = useState<ApprovalItem[]>([])
+  const [makerPassword, setMakerPassword] = useState('')
 
   const counts = {
     total: approvals?.length ?? 0,
-    tier2: approvals?.filter((a) => a.requiredTier === 2).length ?? 0,
-    tier3: approvals?.filter((a) => a.requiredTier === 3).length ?? 0,
     high: approvals?.filter((a) => a.priority === 'High').length ?? 0,
     volume: approvals?.reduce((sum, a) => sum + a.amount, 0) ?? 0,
   }
@@ -133,10 +133,10 @@ export function ApprovalQueuePage() {
     if (!approvals) return []
     if (filter === 'High priority')
       return approvals.filter((a) => a.priority === 'High')
-    if (filter === 'Tier 2')
-      return approvals.filter((a) => a.requiredTier === 2)
-    if (filter === 'Tier 3')
-      return approvals.filter((a) => a.requiredTier === 3)
+    if (filter === 'Medium priority')
+      return approvals.filter((a) => a.priority === 'Medium')
+    if (filter === 'Low priority')
+      return approvals.filter((a) => a.priority === 'Low')
     return approvals
   }, [approvals, filter])
 
@@ -179,11 +179,15 @@ export function ApprovalQueuePage() {
     )
   }
 
-  async function approveMany(items: ApprovalItem[]) {
+  async function approveMany(items: ApprovalItem[], password: string) {
     try {
       await Promise.all(
         items.map((item) =>
-          resolve.mutateAsync({ id: item.id, decision: 'approve' }),
+          resolve.mutateAsync({
+            id: item.id,
+            decision: 'approve',
+            password,
+          }),
         ),
       )
       toast.success(
@@ -192,9 +196,16 @@ export function ApprovalQueuePage() {
           : `${items.length} transactions approved`,
       )
       setSelectedIds([])
+      setApproveTargets([])
+      setMakerPassword('')
     } catch {
       toast.error('One or more approvals failed — please retry')
     }
+  }
+
+  function confirmApprove(items: ApprovalItem[]) {
+    setMakerPassword('')
+    setApproveTargets(items)
   }
 
   async function rejectMany(items: ApprovalItem[]) {
@@ -257,25 +268,13 @@ export function ApprovalQueuePage() {
           </div>
         </div>
 
-        <div className="relative mt-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <div className="relative mt-5 grid grid-cols-2 gap-3">
           {[
             {
               label: 'Awaiting your action',
               value: String(counts.total),
               icon: CheckCheck,
               tone: 'bg-primary/15 text-primary',
-            },
-            {
-              label: 'Require Tier 2 sign-off',
-              value: String(counts.tier2),
-              icon: Layers,
-              tone: 'bg-sky-100 text-sky-600',
-            },
-            {
-              label: 'Require Tier 3 sign-off',
-              value: String(counts.tier3),
-              icon: ChevronsUp,
-              tone: 'bg-violet-100 text-violet-600',
             },
             {
               label: 'High priority',
@@ -457,7 +456,7 @@ export function ApprovalQueuePage() {
                             <Button
                               size="sm"
                               disabled={resolve.isPending}
-                              onClick={() => approveMany([a])}
+                              onClick={() => confirmApprove([a])}
                             >
                               Approve
                             </Button>
@@ -554,7 +553,7 @@ export function ApprovalQueuePage() {
                 </Button>
                 <Button
                   disabled={resolve.isPending}
-                  onClick={() => approveMany(selectedItems)}
+                  onClick={() => confirmApprove(selectedItems)}
                 >
                   <CheckCheck className="size-4" />
                   Approve all
@@ -688,8 +687,8 @@ export function ApprovalQueuePage() {
               <Button
                 disabled={resolve.isPending}
                 onClick={() => {
-                  approveMany([detail])
                   setDetail(null)
+                  confirmApprove([detail])
                 }}
               >
                 <CheckCheck className="size-4" />
@@ -757,6 +756,75 @@ export function ApprovalQueuePage() {
               onClick={() => rejectMany(rejectTargets)}
             >
               Reject transaction{rejectTargets.length === 1 ? '' : 's'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Maker password confirmation */}
+      <Dialog
+        open={approveTargets.length > 0}
+        onOpenChange={(o) => {
+          if (!o) {
+            setApproveTargets([])
+            setMakerPassword('')
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="size-4 text-primary" />
+              Enter maker password to approve
+            </DialogTitle>
+            <DialogDescription>
+              {approveTargets.length === 1 ? (
+                <>
+                  Approve {approveTargets[0]?.reference} ·{' '}
+                  {approveTargets[0]
+                    ? formatCurrency(
+                        approveTargets[0].amount,
+                        approveTargets[0].currency,
+                      )
+                    : ''}
+                </>
+              ) : (
+                <>
+                  {approveTargets.length} transactions totalling{' '}
+                  {formatCurrency(
+                    approveTargets.reduce((s, a) => s + a.amount, 0),
+                  )}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="maker-password">Maker's password</Label>
+            <Input
+              id="maker-password"
+              type="password"
+              placeholder="Enter your password to authorise"
+              value={makerPassword}
+              onChange={(e) => setMakerPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && makerPassword.trim().length > 0) {
+                  void approveMany(approveTargets, makerPassword.trim())
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              disabled={resolve.isPending || makerPassword.trim().length === 0}
+              onClick={() => approveMany(approveTargets, makerPassword.trim())}
+            >
+              <CheckCheck className="size-4" />
+              {resolve.isPending
+                ? 'Approving…'
+                : `Approve${approveTargets.length > 1 ? ` ${approveTargets.length}` : ''}`}
             </Button>
           </DialogFooter>
         </DialogContent>

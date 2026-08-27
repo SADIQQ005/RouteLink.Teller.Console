@@ -10,6 +10,7 @@ import {
 
 import { cn } from '@/lib/utils'
 import { navGroups, type NavItem } from '@/components/layout/nav-config'
+import { useApprovals, useTransactions } from '@/hooks/use-api'
 import { useAppDispatch, useAppSelector } from '@/store'
 import { logout } from '@/store/slices/auth-slice'
 
@@ -34,7 +35,7 @@ function SidebarBrand() {
           RouteLink
         </p>
         <p className="text-[11.5px] font-semibold tracking-[0.04em] text-muted-foreground/70">
-          TELLER · v2.1
+          TELLER · v1.0
         </p>
       </div>
     </div>
@@ -136,6 +137,12 @@ function NavItemRow({
 function SidebarNav() {
   const { pathname } = useLocation()
   const user = useAppSelector((state) => state.auth.user)
+  const { data: approvals } = useApprovals()
+  const { data: transactions } = useTransactions()
+
+  const pendingApprovals = approvals?.length ?? 0
+  const pendingTransactions =
+    transactions?.filter((t) => t.status === 'Pending').length ?? 0
 
   const nav = useMemo(() => {
     return navGroups.map((group) => ({
@@ -144,15 +151,25 @@ function SidebarNav() {
         item.children
           ? {
               ...item,
-              children: item.children.filter(
-                (child) =>
-                  !(child.path === '/account/approval-queue' && user.access === 'Maker'),
-              ),
+              children: item.children
+                .filter(
+                  (child) =>
+                    !(child.path === '/account/approval-queue' && user.access === 'Maker'),
+                )
+                .map((child) => ({
+                  ...child,
+                  badge:
+                    child.path === '/account/approval-queue'
+                      ? pendingApprovals
+                      : child.path === '/payments/transactions'
+                        ? pendingTransactions
+                        : child.badge,
+                })),
             }
           : item,
       ),
     }))
-  }, [user.access])
+  }, [user.access, pendingApprovals, pendingTransactions])
 
   const initialExpanded = useMemo(() => {
     const s = new Set<string>(['Payments'])
