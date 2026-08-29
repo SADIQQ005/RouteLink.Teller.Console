@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
@@ -59,6 +59,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Separator } from '@/components/ui/separator'
 import { useCreateTransaction } from '@/hooks/use-api'
 import { formatCurrency } from '@/lib/format'
+import { api } from '@/lib/data'
 import { useAppSelector } from '@/store'
 
 const banks = [
@@ -109,6 +110,10 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>
 
+type SourceLookup =
+  | { status: 'idle' | 'looking-up' | 'resolved' }
+  | { status: 'error'; message: string }
+
 interface UploadedDoc {
   id: string
   name: string
@@ -149,6 +154,10 @@ export function NewTransactionPage() {
   const [amountDisplay, setAmountDisplay] = useState('')
   const [confirmPasswordStep, setConfirmPasswordStep] = useState(false)
   const [makerPassword, setMakerPassword] = useState('')
+  const [sourceBalance, setSourceBalance] = useState<number | null>(null)
+  const [sourceLookup, setSourceLookup] = useState<SourceLookup>({
+    status: 'idle',
+  })
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -164,6 +173,41 @@ export function NewTransactionPage() {
   const canEnquire = bank.length > 0 && accountNumber.length === 10
   const fee = Number.isFinite(Number(amount)) ? Number(amount) * FEE_RATE : 0
   const total = Number.isFinite(Number(amount)) ? Number(amount) + fee : 0
+
+  useEffect(() => {
+    if (sourceAccount.length !== 10) {
+      setSourceBalance(null)
+      setSourceLookup({ status: 'idle' })
+      return
+    }
+    let active = true
+    setSourceBalance(null)
+    setSourceLookup({ status: 'looking-up' })
+    api
+      .accountLookup(sourceAccount)
+      .then((result) => {
+        if (!active) return
+        setSourceBalance(result.balance)
+        setSourceLookup({ status: 'resolved' })
+      })
+      .catch(() => {
+        if (!active) return
+        setSourceLookup({
+          status: 'error',
+          message: 'Could not look up this account. Check the number and try again.',
+        })
+      })
+    return () => {
+      active = false
+    }
+  }, [sourceAccount])
+
+  const balanceResolved =
+    sourceLookup.status === 'resolved' && sourceBalance !== null
+  const insufficient =
+    balanceResolved &&
+    total > (sourceBalance ?? Number.POSITIVE_INFINITY)
+  const lookingUp = sourceLookup.status === 'looking-up'
 
   async function handleEnquiry() {
     const valid = await form.trigger(['bank', 'accountNumber'])
@@ -317,6 +361,28 @@ export function NewTransactionPage() {
                       </FormItem>
                     )}
                   />
+                  {lookingUp && (
+                    <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
+                      Checking account balance…
+                    </p>
+                  )}
+                  {balanceResolved && (
+                    <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-600">
+                      <BadgeCheck className="size-3.5 shrink-0" />
+                      Balance {formatCurrency(sourceBalance ?? 0)} — available
+                      to debit
+                    </p>
+                  )}
+                  {sourceLookup.status === 'error' && (
+                    <p
+                      role="alert"
+                      className="flex items-center gap-1.5 text-xs font-semibold text-destructive"
+                    >
+                      <AlertCircle className="size-3.5 shrink-0" />
+                      {sourceLookup.message}
+                    </p>
+                  )}
                 </section>
 
                 <Separator />
@@ -480,11 +546,30 @@ export function NewTransactionPage() {
                       </FormItem>
                     )}
                   />
+                  {balanceResolved && Number(amount ?? 0) > 0 && (
+                    insufficient ? (
+                      <p
+                        role="alert"
+                        className="flex items-center gap-1.5 text-xs font-semibold text-destructive"
+                      >
+                        <AlertCircle className="size-3.5 shrink-0" />
+                        Insufficient balance — available{' '}
+                        {formatCurrency(sourceBalance ?? 0)}, total debit{' '}
+                        {formatCurrency(total)}.
+                      </p>
+                    ) : (
+                      <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-600">
+                        <BadgeCheck className="size-3.5 shrink-0" />
+                        Sufficient balance —{' '}
+                        {formatCurrency(sourceBalance ?? 0)} available to cover
+                        the total debit.
+                      </p>
+                    )
+                  )}
                 </section>
 
                 <Separator />
 
-                {/* Narration */}
                 <section className="grid gap-2">
                   <div className="flex items-center gap-2.5">
                     <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
@@ -616,6 +701,17 @@ export function NewTransactionPage() {
                 </span>
               </div>
               <div className="flex items-center justify-between gap-3">
+                <span className="text-white/60">Source balance</span>
+                <span
+                  className={cn(
+                    'max-w-[150px] truncate text-right font-medium',
+                    balanceResolved && insufficient ? 'text-orange' : 'text-white',
+                  )}
+                >
+                  {balanceResolved ? formatCurrency(sourceBalance ?? 0) : '—'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
                 <span className="text-white/60">Beneficiary</span>
                 <span className="max-w-[150px] truncate text-right font-medium text-white">
                   {beneficiaryName || '—'}
@@ -655,7 +751,7 @@ export function NewTransactionPage() {
           <Button
             size="lg"
             className="w-full"
-            disabled={createTx.isPending}
+            disabled={createTx.isPending || lookingUp || insufficient}
             onClick={form.handleSubmit(requestSubmit)}
           >
             <ArrowRight className="size-4" />
@@ -718,7 +814,7 @@ export function NewTransactionPage() {
               <Button variant="outline">Cancel</Button>
             </DialogClose>
             <Button
-              disabled={createTx.isPending || makerPassword.trim().length === 0}
+              disabled={createTx.isPending || insufficient || makerPassword.trim().length === 0}
               onClick={confirmSubmit}
             >
               <ArrowRight className="size-4" />

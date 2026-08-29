@@ -1,5 +1,6 @@
 import { http } from '@/services/http'
 import type {
+  AccountBalance,
   CreateTransactionInput,
   Transaction,
   TransactionStatus,
@@ -20,4 +21,10 @@ export function setTransactionStatus(
   status: TransactionStatus,
 ): Promise<Transaction> {
   return http.patch<Transaction>(`/transactions/${id}/status`, { status })
+}
+
+export function getAccountBalance(
+  accountNumber: string,
+): Promise<AccountBalance> {
+  return http.get<AccountBalance>(`/accounts/${accountNumber}/balance`)
 }

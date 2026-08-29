@@ -111,6 +111,34 @@ export interface DashboardStats {
   approvalDelta: number
 }
 
+export interface AccountBalance {
+  accountNumber: string
+  accountName: string
+  balance: number
+  currency: string
+}
+
+const SOURCE_ACCOUNT_NAMES = [
+  'Alhaji Musa Ibrahim Stores',
+  'Chinedu Okafor & Co.',
+  'Bright Future Academy',
+  'Adeola & Sons Trading',
+  'Zenith Motors Ltd',
+  'Mega Foods Distribution Co.',
+  'Sunshine Agro Allied Ltd',
+  'BlueRidge Consult Limited',
+]
+
+const balances: Record<string, number> = {}
+
+function balanceFor(accountNumber: string): number {
+  if (balances[accountNumber] === undefined) {
+    const num = Number(accountNumber) || 0
+    balances[accountNumber] = (num % 5_000_000) + 250_000
+  }
+  return balances[accountNumber]
+}
+
 let transactions: Transaction[] = []
 
 async function delay(ms: number) {
@@ -200,6 +228,11 @@ export const api = {
     }
     transactions = [created, ...transactions]
 
+    const currentBalance = balances[payload.account]
+    if (currentBalance !== undefined) {
+      balances[payload.account] = Math.max(0, currentBalance - payload.amount)
+    }
+
     addNotification({
       kind: 'pending',
       reference: created.reference,
@@ -238,6 +271,23 @@ export const api = {
       ...approvals,
     ]
     return created
+  },
+
+  accountLookup: async (accountNumber: string): Promise<AccountBalance> => {
+    try {
+      return await transactionsService.getAccountBalance(accountNumber)
+    } catch (error) {
+      if (!isOffline(error)) throw error
+    }
+    await delay(600)
+    const num = Number(accountNumber) || 0
+    return {
+      accountNumber,
+      accountName:
+        SOURCE_ACCOUNT_NAMES[num % SOURCE_ACCOUNT_NAMES.length],
+      balance: balanceFor(accountNumber),
+      currency: 'NGN',
+    }
   },
 
   updateTransactionStatus: async (
