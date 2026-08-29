@@ -1,42 +1,28 @@
-<<<<<<< HEAD
-# Introduction 
-TODO: Give a short introduction of your project. Let this section explain the objectives or the motivation behind this project. 
+# RouteLink Teller
 
-# Getting Started
-TODO: Guide users through getting your code up and running on their own system. In this section you can talk about:
-1.	Installation process
-2.	Software dependencies
-3.	Latest releases
-4.	API references
+Bank teller portal for initiating and approving customer transfers.
 
-# Build and Test
-TODO: Describe and show how to build your code and run the tests. 
+## Features
 
-# Contribute
-TODO: Explain how other users and developers can contribute to make your code better. 
+- Teller dashboard with branch balances and daily flow
+- New transaction flow with beneficiary name enquiry and source account balance check
+- Maker → Checker approval queue with supporting documents
+- Transaction history, audit trail and reconciliation exports
+- Role-based access control and transfer limits
 
-If you want to learn more about creating good readme files then refer the following [guidelines](https://docs.microsoft.com/en-us/azure/devops/repos/git/create-a-readme?view=azure-devops). You can also seek inspiration from the below readme files:
-- [ASP.NET Core](https://github.com/aspnet/Home)
-- [Visual Studio Code](https://github.com/Microsoft/vscode)
-=======
-# Introduction 
-TODO: Give a short introduction of your project. Let this section explain the objectives or the motivation behind this project. 
+## Getting started
 
-# Getting Started
-TODO: Guide users through getting your code up and running on their own system. In this section you can talk about:
-1.	Installation process
-2.	Software dependencies
-3.	Latest releases
-4.	API references
+```bash
+npm install
+npm run dev
+```
 
-# Build and Test
-TODO: Describe and show how to build your code and run the tests. 
+- `npm run dev` — start the Vite dev server
+- `npm run build` — type-check and build for production
+- `npm run lint` — run oxlint
 
-# Contribute
-TODO: Explain how other users and developers can contribute to make your code better. 
+## Tech stack
 
-If you want to learn more about creating good readme files then refer the following [guidelines](https://docs.microsoft.com/en-us/azure/devops/repos/git/create-a-readme?view=azure-devops). You can also seek inspiration from the below readme files:
-- [ASP.NET Core](https://github.com/aspnet/Home)
-- [Visual Studio Code](https://github.com/Microsoft/vscode)
->>>>>>> 0e9a332df0e3de04bbb9fa637cb408120489c306
-- [Chakra Core](https://github.com/Microsoft/ChakraCore)
+React 19, TypeScript, Vite, TanStack Query, React Hook Form + Zod, Redux Toolkit, Tailwind CSS v4, Radix UI.
+
+Demo credentials are listed on the login screen. The app falls back to mock data when the backend API is unreachable.
