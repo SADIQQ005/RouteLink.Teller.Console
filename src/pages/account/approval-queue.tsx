@@ -775,7 +775,7 @@ export function ApprovalQueuePage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <KeyRound className="size-4 text-primary" />
-              Enter maker password to approve
+              Enter password to approve
             </DialogTitle>
             <DialogDescription>
               {approveTargets.length === 1 ? (
@@ -799,7 +799,7 @@ export function ApprovalQueuePage() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-2">
-            <Label htmlFor="maker-password">Maker's password</Label>
+            <Label htmlFor="maker-password">Enter password</Label>
             <Input
               id="maker-password"
               type="password"

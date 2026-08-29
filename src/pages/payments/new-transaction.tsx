@@ -8,6 +8,7 @@ import {
   BadgeCheck,
   CircleDollarSign,
   FileText,
+  KeyRound,
   LoaderCircle,
   Search,
   ShieldCheck,
@@ -35,6 +36,16 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -136,6 +147,8 @@ export function NewTransactionPage() {
   const [documents, setDocuments] = useState<UploadedDoc[]>([])
   const [docsError, setDocsError] = useState<string | null>(null)
   const [amountDisplay, setAmountDisplay] = useState('')
+  const [confirmPasswordStep, setConfirmPasswordStep] = useState(false)
+  const [makerPassword, setMakerPassword] = useState('')
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -192,7 +205,7 @@ export function NewTransactionPage() {
     setDocsError(null)
   }
 
-  function onSubmit(values: FormValues) {
+  function requestSubmit(_values: FormValues) {
     if (documents.length === 0) {
       setDocsError('Upload at least one supporting document')
       toast.error('Supporting document required', {
@@ -201,6 +214,12 @@ export function NewTransactionPage() {
       })
       return
     }
+    setMakerPassword('')
+    setConfirmPasswordStep(true)
+  }
+
+  function confirmSubmit() {
+    const values = form.getValues()
     createTx.mutate(
       {
         beneficiary: values.beneficiaryName,
@@ -214,6 +233,7 @@ export function NewTransactionPage() {
         documents: documents.map((d) => d.name),
         beneficiaryAccount: values.accountNumber,
         beneficiaryBank: values.bank,
+        password: makerPassword.trim(),
       },
       {
         onSuccess: (tx) => {
@@ -230,6 +250,8 @@ export function NewTransactionPage() {
           setDocuments([])
           setDocsError(null)
           setEnquiryName(null)
+          setConfirmPasswordStep(false)
+          setMakerPassword('')
         },
         onError: () => {
           toast.error('Submission failed', {
@@ -263,7 +285,7 @@ export function NewTransactionPage() {
           <CardContent className="pt-4">
             <Form {...form}>
               <form
-                onSubmit={form.handleSubmit(onSubmit)}
+                onSubmit={form.handleSubmit(requestSubmit)}
                 className="grid gap-4"
               >
                 {/* Source */}
@@ -634,7 +656,7 @@ export function NewTransactionPage() {
             size="lg"
             className="w-full"
             disabled={createTx.isPending}
-            onClick={form.handleSubmit(onSubmit)}
+            onClick={form.handleSubmit(requestSubmit)}
           >
             <ArrowRight className="size-4" />
             {createTx.isPending ? 'Submitting…' : 'Review & submit transfer'}
@@ -656,6 +678,55 @@ export function NewTransactionPage() {
           </Card>
         </div>
       </div>
+
+      {/* Maker password confirmation */}
+      <Dialog
+        open={confirmPasswordStep}
+        onOpenChange={(o) => {
+          if (!o) setConfirmPasswordStep(false)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="size-4 text-primary" />
+              Enter password to initiate transfer
+            </DialogTitle>
+            <DialogDescription>
+              {beneficiaryName || 'Beneficiary'} ·{' '}
+              {amount ? formatCurrency(total) : 'Amount'}.{' '}
+              {sourceAccount ? `Debited from ${sourceAccount}.` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="maker-password">Enter password</Label>
+            <Input
+              id="maker-password"
+              type="password"
+              placeholder="Enter your password to authorise"
+              value={makerPassword}
+              onChange={(e) => setMakerPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && makerPassword.trim().length > 0) {
+                  confirmSubmit()
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              disabled={createTx.isPending || makerPassword.trim().length === 0}
+              onClick={confirmSubmit}
+            >
+              <ArrowRight className="size-4" />
+              {createTx.isPending ? 'Submitting…' : 'Confirm & submit transfer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

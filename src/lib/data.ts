@@ -2,6 +2,7 @@ import { ApiError } from '@/services/http'
 import * as statsService from '@/services/stats'
 import * as transactionsService from '@/services/transactions'
 import * as approvalsService from '@/services/approvals'
+import { addNotification } from '@/lib/notifications'
 
 function isOffline(error: unknown): boolean {
   return error instanceof ApiError && error.status === 0
@@ -128,6 +129,7 @@ export interface CreateTransactionInput {
   documents?: string[]
   beneficiaryAccount?: string
   beneficiaryBank?: string
+  password?: string
 }
 
 const TIER_2_LIMIT = 5_000_000
@@ -197,6 +199,12 @@ export const api = {
       }),
     }
     transactions = [created, ...transactions]
+
+    addNotification({
+      kind: 'pending',
+      reference: created.reference,
+      beneficiary: created.beneficiary,
+    })
 
     // Route the transfer into the approval queue (maker → checker flow)
     const requiredTier =
@@ -276,6 +284,13 @@ getApprovals: async (): Promise<ApprovalItem[]> => {
           ? { ...t, status: decision === 'approve' ? 'Success' : 'Failed' }
           : t,
       )
+      if (decision === 'approve') {
+        addNotification({
+          kind: 'approved',
+          reference: item.reference,
+          beneficiary: item.beneficiary,
+        })
+      }
     }
     return { id, decision }
   },

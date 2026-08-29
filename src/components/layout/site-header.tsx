@@ -1,11 +1,6 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  Bell,
-  CheckCheck,
-  ChevronRight,
-  Menu,
-  TriangleAlert,
-} from 'lucide-react'
+import { Bell, CheckCheck, ChevronRight, Menu } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -19,6 +14,32 @@ import {
 import { GlobalSearch } from '@/components/layout/global-search'
 import { useAppDispatch } from '@/store'
 import { toggleSidebar } from '@/store/slices/ui-slice'
+import {
+  formatNotificationTime,
+  loadNotifications,
+  type NotificationKind,
+  type NotificationRecord,
+} from '@/lib/notifications'
+
+const NOTIFICATION_META: Record<
+  NotificationKind,
+  { icon: typeof Bell; tone: string }
+> = {
+  pending: {
+    icon: Bell,
+    tone: 'text-sky-600 bg-sky-100',
+  },
+  approved: {
+    icon: CheckCheck,
+    tone: 'text-emerald-600 bg-emerald-100',
+  },
+}
+
+function notificationTitle(n: NotificationRecord): string {
+  return n.kind === 'approved'
+    ? `Approval — ${n.reference} approved`
+    : `New approval request — ${n.reference} awaiting your review`
+}
 
 const BREADCRUMBS: Record<string, { crumbs: string[]; title: string }> = {
   '/dashboard': { crumbs: ['Dashboard'], title: 'Dashboard' },
@@ -57,27 +78,6 @@ const BREADCRUMBS: Record<string, { crumbs: string[]; title: string }> = {
   '/profile': { crumbs: ['Profile'], title: 'Profile' },
 }
 
-const NOTIFICATIONS = [
-  {
-    icon: CheckCheck,
-    tone: 'text-emerald-600 bg-emerald-100',
-    title: 'Approval — TRX-260827-0139 approved',
-    time: '8 min ago',
-  },
-  {
-    icon: TriangleAlert,
-    tone: 'text-amber-600 bg-amber-100',
-    title: 'Reconciliation batch REC-0826-002 has a discrepancy',
-    time: '2 hr ago',
-  },
-  {
-    icon: Bell,
-    tone: 'text-sky-600 bg-sky-100',
-    title: 'New approval request awaiting your review',
-    time: '5 hr ago',
-  },
-] as const
-
 function PageBreadcrumb({ pathname }: { pathname: string }) {
   const meta = BREADCRUMBS[pathname] ?? { crumbs: [pathname], title: '' }
 
@@ -112,6 +112,15 @@ function PageBreadcrumb({ pathname }: { pathname: string }) {
 
 export function SiteHeader({ pathname }: { pathname: string }) {
   const dispatch = useAppDispatch()
+  const [notifOpen, setNotifOpen] = useState(false)
+  const [notifications, setNotifications] = useState<NotificationRecord[]>(() =>
+    loadNotifications(),
+  )
+
+  function refreshNotifications(open: boolean) {
+    setNotifOpen(open)
+    if (open) setNotifications(loadNotifications())
+  }
 
   return (
     <header className="sticky top-0 z-30 flex h-20 items-center gap-4 border-b border-border/50 glass-dark px-4 sm:px-8">
@@ -130,7 +139,7 @@ export function SiteHeader({ pathname }: { pathname: string }) {
       <div className="ml-auto flex items-center gap-3">
         <GlobalSearch />
 
-        <DropdownMenu>
+        <DropdownMenu open={notifOpen} onOpenChange={refreshNotifications}>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
@@ -139,38 +148,56 @@ export function SiteHeader({ pathname }: { pathname: string }) {
               aria-label="Notifications"
             >
               <Bell className="size-5" />
-              <span className="absolute top-2.5 right-2.5 size-2 rounded-full bg-primary ring-2 ring-background shadow-[0_0_0_1px_rgba(249,115,22,0.4)]" />
+              {notifications.length > 0 && (
+                <span className="absolute top-2.5 right-2.5 size-2 rounded-full bg-primary ring-2 ring-background shadow-[0_0_0_1px_rgba(249,115,22,0.4)]" />
+              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-[360px] rounded-xl p-1.5 shadow-xl">
             <DropdownMenuLabel className="flex items-center justify-between px-3 py-2.5">
               <span className="text-[14px] font-semibold tracking-tight">Notifications</span>
               <span className="rounded-full bg-primary/12 px-2.5 py-0.5 text-[11.5px] font-bold text-primary">
-                {NOTIFICATIONS.length} new
+                {notifications.length}
               </span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator className="mx-1.5" />
             <div className="max-h-[360px] overflow-y-auto scrollbar-thin">
-              {NOTIFICATIONS.map((n, idx) => (
-                <DropdownMenuItem
-                  key={idx}
-                  className="items-start gap-3 rounded-xl p-3 focus:bg-accent/60"
-                >
-                  <span
-                    className={`mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl ${n.tone}`}
-                  >
-                    <n.icon className="size-4.5" />
-                  </span>
-                  <span className="min-w-0 py-0.5">
-                    <span className="block text-[13px] leading-snug font-semibold text-foreground">
-                      {n.title}
-                    </span>
-                    <span className="block pt-1 text-[11.5px] text-muted-foreground">
-                      {n.time}
-                    </span>
-                  </span>
-                </DropdownMenuItem>
-              ))}
+              {notifications.length === 0 ? (
+                <div className="flex flex-col items-center gap-1 px-3 py-8 text-center">
+                  <Bell className="size-6 text-muted-foreground/40" />
+                  <p className="text-sm font-medium text-foreground">
+                    No notifications
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Pending approvals and approved transfers will appear here.
+                  </p>
+                </div>
+              ) : (
+                notifications.map((n) => {
+                  const meta = NOTIFICATION_META[n.kind]
+                  const Icon = meta.icon
+                  return (
+                    <DropdownMenuItem
+                      key={n.id}
+                      className="items-start gap-3 rounded-xl p-3 focus:bg-accent/60"
+                    >
+                      <span
+                        className={`mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl ${meta.tone}`}
+                      >
+                        <Icon className="size-4.5" />
+                      </span>
+                      <span className="min-w-0 py-0.5">
+                        <span className="block text-[13px] leading-snug font-semibold text-foreground">
+                          {notificationTitle(n)}
+                        </span>
+                        <span className="block pt-1 text-[11.5px] text-muted-foreground">
+                          {n.beneficiary} · {formatNotificationTime(n.createdAt)}
+                        </span>
+                      </span>
+                    </DropdownMenuItem>
+                  )
+                })
+              )}
             </div>
             <DropdownMenuSeparator className="mx-1.5" />
             <DropdownMenuItem asChild className="justify-center text-primary rounded-xl mx-1 my-1 py-2.5 font-semibold text-[13px]">
