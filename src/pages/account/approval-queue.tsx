@@ -6,6 +6,7 @@ import {
   CheckCheck,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Download,
   Eye,
   FileText,
@@ -14,6 +15,7 @@ import {
   ShieldAlert,
   Sparkles,
   User,
+  Wallet,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -34,14 +36,6 @@ import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { PageHeader } from '@/components/ui/page-header'
 import {
   useApprovals,
@@ -56,6 +50,19 @@ type Filter = 'All' | 'High priority' | 'Medium priority' | 'Low priority'
 
 const FILTERS: Filter[] = ['All', 'High priority', 'Medium priority', 'Low priority']
 
+const REJECTION_PRESETS: string[] = [
+  'Insufficient funds in source account',
+  'Beneficiary details mismatch — name/account number',
+  'Beneficiary bank details incorrect or invalid',
+  'Payment narration unclear or missing',
+  'Duplicate request — already processed',
+  'Above signing limit — escalate to higher tier',
+  'Supporting documents missing or invalid',
+  'Compliance / KYC check failed on beneficiary',
+  'Suspicious activity — flagged for review',
+  'Request cancelled by initiator',
+]
+
 const PAGE_SIZE = 5
 
 const PRIORITY_TONE: Record<ApprovalItem['priority'], string> = {
@@ -63,6 +70,96 @@ const PRIORITY_TONE: Record<ApprovalItem['priority'], string> = {
   Medium:
     'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400',
   Low: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400',
+}
+
+const PRIORITY_DATE_ACCENT: Record<ApprovalItem['priority'], string> = {
+  High: 'text-red-500',
+  Medium: 'text-amber-600',
+  Low: 'text-primary',
+}
+
+interface ParsedDate {
+  dayName: string
+  dayNum: string
+  month: string
+  year: string
+  time: string
+  monthKey: string
+  sortKey: number
+}
+
+function parseSubmittedAt(input: string): ParsedDate {
+  const cleaned = input.replace('·', ',').trim()
+  const date = new Date(cleaned)
+  if (!Number.isNaN(date.getTime())) {
+    return {
+      dayName: date.toLocaleDateString('en-GB', { weekday: 'short' }),
+      dayNum: date.toLocaleDateString('en-GB', { day: '2-digit' }),
+      month: date.toLocaleDateString('en-GB', { month: 'long' }),
+      year: date.toLocaleDateString('en-GB', { year: 'numeric' }),
+      time: date.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      monthKey: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`,
+      sortKey: date.getTime(),
+    }
+  }
+  const match = input.match(
+    /^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})[\s,·]+(\d{1,2}:\d{2})/,
+  )
+  if (match) {
+    const [, dayNum, monthRaw, year, time] = match
+    const monthDate = new Date(`${monthRaw} 1, ${year}`)
+    const monthNum = monthDate.getMonth()
+    const dayNameDate = new Date(
+      Number(year),
+      monthNum,
+      Number(dayNum),
+    )
+    return {
+      dayName: dayNameDate.toLocaleDateString('en-GB', { weekday: 'short' }),
+      dayNum: String(dayNum).padStart(2, '0'),
+      month: monthDate.toLocaleDateString('en-GB', { month: 'long' }),
+      year,
+      time,
+      monthKey: `${year}-${String(monthNum + 1).padStart(2, '0')}`,
+      sortKey: dayNameDate.getTime(),
+    }
+  }
+  return {
+    dayName: '—',
+    dayNum: '00',
+    month: 'Unknown',
+    year: '',
+    time: input,
+    monthKey: '0000-00',
+    sortKey: 0,
+  }
+}
+
+interface CalendarGroup {
+  monthKey: string
+  label: string
+  items: ApprovalItem[]
+}
+
+function groupByMonth(items: ApprovalItem[]): CalendarGroup[] {
+  const groups = new Map<string, CalendarGroup>()
+  for (const item of items) {
+    const parsed = parseSubmittedAt(item.submittedAt)
+    if (!groups.has(parsed.monthKey)) {
+      groups.set(parsed.monthKey, {
+        monthKey: parsed.monthKey,
+        label: parsed.year ? `${parsed.month} ${parsed.year}` : parsed.month,
+        items: [],
+      })
+    }
+    groups.get(parsed.monthKey)!.items.push(item)
+  }
+  return Array.from(groups.values()).sort((a, b) =>
+    b.monthKey.localeCompare(a.monthKey),
+  )
 }
 
 function DetailRow({
@@ -337,141 +434,203 @@ export function ApprovalQueuePage() {
                 )}`}
           </div>
 
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-10">
-                    <Checkbox
-                      checked={allVisibleSelected}
-                      onCheckedChange={toggleAll}
-                      aria-label="Select all on this page"
-                    />
-                  </TableHead>
-                  <TableHead>Reference</TableHead>
-                  <TableHead>Beneficiary</TableHead>
-                  <TableHead className="hidden lg:table-cell">Initiated by</TableHead>
-                  <TableHead className="hidden xl:table-cell">Submitted</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="hidden md:table-cell">Priority</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading &&
-                  [1, 2, 3, 4, 5].map((i) => (
-                    <TableRow key={i}>
-                      {Array.from({ length: 8 }).map((_, j) => (
-                        <TableCell key={j}>
-                          <Skeleton className="h-6 w-20" />
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
+          {/* Select-all bar for calendar view */}
+          {!isLoading && pageItems.length > 0 && (
+            <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  checked={allVisibleSelected}
+                  onCheckedChange={toggleAll}
+                  aria-label="Select all on this page"
+                />
+                <span>Select all on this page</span>
+              </div>
+              <div className="hidden sm:block">
+                {selectedIds.length === 0
+                  ? `${pageItems.length} item${pageItems.length === 1 ? '' : 's'} on this page`
+                  : `${selectedIds.length} selected · ${formatCurrency(
+                      selectedItems.reduce((s, a) => s + a.amount, 0),
+                    )}`}
+              </div>
+            </div>
+          )}
 
-                {!isLoading && visible.length === 0 && (
-                  <TableRow>
-                    <TableCell
-                      colSpan={8}
-                      className="py-10 text-center text-muted-foreground"
-                    >
-                      <Inbox className="mx-auto mb-2 size-8" />
-                      Nothing in the queue for this filter.
-                    </TableCell>
-                  </TableRow>
-                )}
+          {/* Calendar-style grouped list */}
+          <div className="space-y-5">
+            {isLoading &&
+              [1, 2, 3, 4, 5].map((i) => (
+                <div
+                  key={i}
+                  className="flex items-stretch gap-4 rounded-xl border p-4"
+                >
+                  <Skeleton className="w-16 shrink-0 rounded-lg" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-5 w-40" />
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-4 w-24" />
+                  </div>
+                  <div className="flex shrink-0 flex-col justify-between items-end gap-2">
+                    <Skeleton className="h-6 w-24" />
+                    <div className="flex gap-2">
+                      <Skeleton className="h-8 w-16 rounded-md" />
+                      <Skeleton className="h-8 w-20 rounded-md" />
+                    </div>
+                  </div>
+                </div>
+              ))}
 
-                {!isLoading &&
-                  pageItems.map((a) => {
-                    const checked = selectedIds.includes(a.id)
-                    return (
-                      <TableRow
-                        key={a.id}
-                        className={cn(
-                          'cursor-pointer',
-                          checked && 'bg-primary/5',
-                        )}
-                        onClick={() => setDetail(a)}
-                      >
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <Checkbox
-                            checked={checked}
-                            onCheckedChange={() => toggle(a)}
-                            aria-label={`Select ${a.reference}`}
-                          />
-                        </TableCell>
-                        <TableCell className="font-medium text-primary">
-                          {a.reference}
-                        </TableCell>
-                        <TableCell>
-                          <p className="font-medium text-foreground">
-                            {a.beneficiary}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {a.type} payment
-                          </p>
-                        </TableCell>
-                        <TableCell className="hidden text-muted-foreground lg:table-cell">
-                          {a.initiatedBy}
-                        </TableCell>
-                        <TableCell className="hidden text-muted-foreground xl:table-cell">
-                          {a.submittedAt}
-                        </TableCell>
-                        <TableCell className="text-right font-semibold tabular-nums">
-                          {formatCurrency(a.amount, a.currency)}
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell">
-                          <Badge
-                            variant="outline"
-                            className={PRIORITY_TONE[a.priority]}
-                          >
-                            {a.priority}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
+            {!isLoading && visible.length === 0 && (
+              <div className="rounded-xl border py-14 text-center text-muted-foreground">
+                <Inbox className="mx-auto mb-3 size-10 opacity-50" />
+                <p className="font-medium">Nothing in the queue for this filter.</p>
+                <p className="mt-1 text-xs">
+                  Switch filters or initiate a new payment to see items here.
+                </p>
+              </div>
+            )}
+
+            {!isLoading &&
+              pageItems.length > 0 &&
+              groupByMonth(pageItems).map((group) => (
+                <div key={group.monthKey} className="space-y-2">
+                  <h3 className="px-1 text-sm font-bold tracking-tight text-muted-foreground">
+                    {group.label}
+                  </h3>
+                  <div className="space-y-2">
+                    {group.items.map((a) => {
+                      const checked = selectedIds.includes(a.id)
+                      const parsed = parseSubmittedAt(a.submittedAt)
+                      return (
+                        <div
+                          key={a.id}
+                          className={cn(
+                            'group flex items-stretch gap-4 rounded-xl border bg-card p-4 transition-all cursor-pointer hover:shadow-md hover:border-primary/30',
+                            checked &&
+                              'border-primary/40 bg-primary/[0.04] shadow-sm',
+                          )}
+                          onClick={() => setDetail(a)}
+                        >
+                          {/* Calendar date block */}
+                          <div className="flex shrink-0 flex-col items-center justify-center rounded-lg border bg-muted/40 px-3 py-2 min-w-[64px]">
+                            <span
+                              className={cn(
+                                'text-[11px] font-bold uppercase tracking-wider',
+                                PRIORITY_DATE_ACCENT[a.priority],
+                              )}
+                            >
+                              {parsed.dayName}
+                            </span>
+                            <span
+                              className={cn(
+                                'mt-0.5 text-2xl font-extrabold leading-none tabular-nums',
+                                PRIORITY_DATE_ACCENT[a.priority],
+                              )}
+                            >
+                              {parsed.dayNum}
+                            </span>
+                          </div>
+
+                          {/* Main content */}
+                          <div className="min-w-0 flex-1 flex flex-col justify-center gap-1.5">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                              <span className="font-mono text-sm font-semibold text-primary">
+                                {a.reference}
+                              </span>
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  PRIORITY_TONE[a.priority],
+                                  'text-[10px] uppercase tracking-wide',
+                                )}
+                              >
+                                {a.priority}
+                              </Badge>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                              <p className="font-semibold text-foreground leading-tight">
+                                {a.beneficiary}
+                              </p>
+                              <span className="text-xs text-muted-foreground">
+                                {a.type} payment
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                              <span className="inline-flex items-center gap-1.5">
+                                <Clock className="size-3" />
+                                {parsed.time}
+                              </span>
+                              <span className="inline-flex items-center gap-1.5">
+                                <User className="size-3" />
+                                {a.initiatedBy}
+                              </span>
+                              <span className="hidden sm:inline-flex items-center gap-1.5">
+                                <Wallet className="size-3" />
+                                {a.method}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Right side: amount + actions */}
                           <div
-                            className="flex justify-end gap-2"
+                            className="flex shrink-0 flex-col items-end justify-between gap-2 sm:gap-3"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <Button
-                              size="icon-sm"
-                              variant="ghost"
-                              aria-label={`View ${a.reference}`}
-                              onClick={() => setDetail(a)}
-                            >
-                              <Eye className="size-4" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                              disabled={resolve.isPending}
-                              onClick={() => {
-                                setRejectReason('')
-                                setRejectTargets([a])
-                              }}
-                            >
-                              Reject
-                            </Button>
-                            <Button
-                              size="sm"
-                              disabled={resolve.isPending}
-                              onClick={() => confirmApprove([a])}
-                            >
-                              Approve
-                            </Button>
+                            <div className="text-right">
+                              <p className="text-lg font-bold tabular-nums leading-tight">
+                                {formatCurrency(a.amount, a.currency)}
+                              </p>
+                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                                Tier {a.requiredTier} auth
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1 mr-1">
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={() => toggle(a)}
+                                  aria-label={`Select ${a.reference}`}
+                                />
+                                <Button
+                                  size="icon-sm"
+                                  variant="ghost"
+                                  aria-label={`View ${a.reference}`}
+                                  onClick={() => setDetail(a)}
+                                >
+                                  <Eye className="size-4" />
+                                </Button>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                disabled={resolve.isPending}
+                                onClick={() => {
+                                  setRejectReason('')
+                                  setRejectTargets([a])
+                                }}
+                              >
+                                Reject
+                              </Button>
+                              <Button
+                                size="sm"
+                                disabled={resolve.isPending}
+                                onClick={() => confirmApprove([a])}
+                              >
+                                Approve
+                              </Button>
+                            </div>
                           </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-              </TableBody>
-            </Table>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
           </div>
 
           {/* Pagination */}
           {!isLoading && visible.length > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
               <p className="text-xs text-muted-foreground">
                 Showing{' '}
                 <span className="font-semibold text-foreground">
@@ -736,15 +895,48 @@ export function ApprovalQueuePage() {
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-2">
-            <Label htmlFor="reject-reason">Reason for rejection</Label>
-            <Textarea
-              id="reject-reason"
-              rows={3}
-              placeholder="Provide a reason these requests were declined…"
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-            />
+          <div className="grid gap-3">
+            <div>
+              <Label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Quick reasons
+              </Label>
+              <div className="flex flex-wrap gap-1.5">
+                {REJECTION_PRESETS.map((preset) => {
+                  const selected = rejectReason.trim() === preset
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() =>
+                        setRejectReason(selected ? '' : preset)
+                      }
+                      className={cn(
+                        'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                        selected
+                          ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                          : 'border-border bg-muted/30 text-muted-foreground hover:border-destructive/30 hover:bg-destructive/5 hover:text-destructive',
+                      )}
+                    >
+                      {preset}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <Separator />
+            <div className="grid gap-2">
+              <Label htmlFor="reject-reason">Reason for rejection</Label>
+              <Textarea
+                id="reject-reason"
+                rows={3}
+                placeholder="Pick a quick reason above or type your own…"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Minimum 5 characters. Rejection is recorded on the audit trail.
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <DialogClose asChild>
