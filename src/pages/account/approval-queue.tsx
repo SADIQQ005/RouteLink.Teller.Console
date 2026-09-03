@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
   AlertCircle,
@@ -11,8 +11,11 @@ import {
   Eye,
   FileText,
   Inbox,
-  KeyRound,
+  LoaderCircle,
+  MessageSquare,
+  RefreshCw,
   ShieldAlert,
+  ShieldCheck,
   Sparkles,
   User,
   Wallet,
@@ -45,6 +48,8 @@ import { formatCurrency } from '@/lib/format'
 import { downloadBlob } from '@/lib/download'
 import { cn } from '@/lib/utils'
 import type { ApprovalItem } from '@/lib/data'
+import * as otpService from '@/services/otp'
+import { useAppSelector } from '@/store'
 
 type Filter = 'All' | 'High priority' | 'Medium priority' | 'Low priority'
 
@@ -211,6 +216,7 @@ function downloadSupportingDocument(doc: string, item: ApprovalItem) {
 export function ApprovalQueuePage() {
   const { data: approvals, isLoading } = useApprovals()
   const resolve = useResolveApproval()
+  const user = useAppSelector((state) => state.auth.user)
   const [filter, setFilter] = useState<Filter>('All')
   const [page, setPage] = useState(1)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -218,7 +224,20 @@ export function ApprovalQueuePage() {
   const [rejectTargets, setRejectTargets] = useState<ApprovalItem[]>([])
   const [rejectReason, setRejectReason] = useState('')
   const [approveTargets, setApproveTargets] = useState<ApprovalItem[]>([])
-  const [makerPassword, setMakerPassword] = useState('')
+  const [otpCode, setOtpCode] = useState('')
+  const [otpId, setOtpId] = useState<string | null>(null)
+  const [otpSentTo, setOtpSentTo] = useState<string>('')
+  const [otpExpiresAt, setOtpExpiresAt] = useState<number>(0)
+  const [otpResendAfter, setOtpResendAfter] = useState<number>(0)
+  const [sendingOtp, setSendingOtp] = useState(false)
+  const [otpError, setOtpError] = useState<string | null>(null)
+  const [nowTick, setNowTick] = useState(0)
+
+  useEffect(() => {
+    if (approveTargets.length === 0) return
+    const id = window.setInterval(() => setNowTick((t) => t + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [approveTargets.length])
 
   const counts = {
     total: approvals?.length ?? 0,
@@ -249,6 +268,13 @@ export function ApprovalQueuePage() {
   const allVisibleSelected =
     pageItems.length > 0 && pageItems.every((a) => selectedIds.includes(a.id))
 
+  const now = useMemo(() => Date.now(), [nowTick])
+  const otpExpiresInMs = Math.max(0, otpExpiresAt - now)
+  const otpExpiresInMin = Math.floor(otpExpiresInMs / 60000)
+  const otpExpiresInSec = Math.floor((otpExpiresInMs % 60000) / 1000)
+  const canResendOtp = otpResendAfter > 0 && now >= otpResendAfter && !sendingOtp
+  const resendCountdown = Math.max(0, Math.ceil((otpResendAfter - now) / 1000))
+
   function selectFilter(f: Filter) {
     setFilter(f)
     setPage(1)
@@ -276,14 +302,51 @@ export function ApprovalQueuePage() {
     )
   }
 
-  async function approveMany(items: ApprovalItem[], password: string) {
+  async function sendCheckerOtp(items: ApprovalItem[]) {
+    setSendingOtp(true)
+    setOtpError(null)
+    try {
+      const resp = await otpService.sendCheckerOtp({
+        checkerUserId: user.id,
+        checkerEmail: user.email,
+        transactionIds: items.map((i) => i.id),
+        references: items.map((i) => i.reference),
+      })
+      setOtpId(resp.otpId)
+      setOtpSentTo(resp.sentTo)
+      setOtpExpiresAt(new Date(resp.expiresAt).getTime())
+      setOtpResendAfter(Date.now() + resp.resendAfter)
+      setOtpCode('')
+      toast.success('Approval OTP sent', {
+        description: `Verification code sent to ${resp.sentTo}. Enter the 6-digit code to sign off.`,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not send OTP'
+      toast.error('Failed to send OTP', { description: message })
+      setOtpError(message)
+    } finally {
+      setSendingOtp(false)
+    }
+  }
+
+  async function approveMany(items: ApprovalItem[]) {
+    if (!otpId) {
+      setOtpError('OTP session missing. Please request a new code.')
+      return
+    }
+    if (otpCode.trim().length !== 6) {
+      setOtpError('Enter the 6-digit code sent to your device.')
+      return
+    }
+    setOtpError(null)
     try {
       await Promise.all(
         items.map((item) =>
           resolve.mutateAsync({
             id: item.id,
             decision: 'approve',
-            password,
+            otpId: otpId,
+            otpCode: otpCode.trim(),
           }),
         ),
       )
@@ -294,15 +357,28 @@ export function ApprovalQueuePage() {
       )
       setSelectedIds([])
       setApproveTargets([])
-      setMakerPassword('')
-    } catch {
-      toast.error('One or more approvals failed — please retry')
+      setOtpCode('')
+      setOtpId(null)
+      setOtpSentTo('')
+      setOtpExpiresAt(0)
+      setOtpResendAfter(0)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'One or more approvals failed — please retry'
+      setOtpError(message)
+      toast.error('Approval failed', { description: message })
     }
   }
 
   function confirmApprove(items: ApprovalItem[]) {
-    setMakerPassword('')
+    setOtpCode('')
+    setOtpId(null)
+    setOtpError(null)
     setApproveTargets(items)
+    void sendCheckerOtp(items)
+  }
+
+  async function resendCheckerOtp() {
+    await sendCheckerOtp(approveTargets)
   }
 
   async function rejectMany(items: ApprovalItem[]) {
@@ -953,21 +1029,23 @@ export function ApprovalQueuePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Maker password confirmation */}
+      {/* Checker OTP verification */}
       <Dialog
         open={approveTargets.length > 0}
         onOpenChange={(o) => {
           if (!o) {
             setApproveTargets([])
-            setMakerPassword('')
+            setOtpCode('')
+            setOtpId(null)
+            setOtpError(null)
           }
         }}
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <KeyRound className="size-4 text-primary" />
-              Enter password to approve
+              <MessageSquare className="size-4 text-primary" />
+              Verify your identity with OTP
             </DialogTitle>
             <DialogDescription>
               {approveTargets.length === 1 ? (
@@ -990,28 +1068,102 @@ export function ApprovalQueuePage() {
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-2">
-            <Label htmlFor="maker-password">Enter password</Label>
-            <Input
-              id="maker-password"
-              type="password"
-              placeholder="Enter your password to authorise"
-              value={makerPassword}
-              onChange={(e) => setMakerPassword(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && makerPassword.trim().length > 0) {
-                  void approveMany(approveTargets, makerPassword.trim())
-                }
-              }}
-            />
+          <div className="grid gap-3">
+            {sendingOtp ? (
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                <LoaderCircle className="size-4 animate-spin text-primary" />
+                Sending verification code to your registered device…
+              </div>
+            ) : otpSentTo ? (
+              <div className="flex items-center justify-between gap-2 rounded-lg border bg-emerald-50 dark:bg-emerald-500/10 px-4 py-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
+                  <span className="font-medium text-emerald-800 dark:text-emerald-300">
+                    Code sent to {otpSentTo}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 text-xs font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
+                  <Clock className="size-3.5" />
+                  {otpExpiresInMin}:{String(otpExpiresInSec).padStart(2, '0')}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="grid gap-2">
+              <Label htmlFor="checker-otp">Enter 6-digit OTP</Label>
+              <Input
+                id="checker-otp"
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                autoComplete="one-time-code"
+                placeholder="e.g. 374 920"
+                className="text-center text-xl font-bold tracking-[0.5em] tabular-nums font-mono"
+                value={otpCode}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, '').slice(0, 6)
+                  setOtpCode(digits)
+                  setOtpError(null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && otpCode.length === 6 && otpId) {
+                    void approveMany(approveTargets)
+                  }
+                }}
+                disabled={sendingOtp || !otpId}
+              />
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <button
+                  type="button"
+                  disabled={!canResendOtp || sendingOtp}
+                  onClick={resendCheckerOtp}
+                  className={cn(
+                    'inline-flex items-center gap-1 font-medium transition-colors',
+                    canResendOtp && !sendingOtp
+                      ? 'text-primary hover:underline'
+                      : 'cursor-not-allowed text-muted-foreground/60',
+                  )}
+                >
+                  <RefreshCw
+                    className={cn(
+                      'size-3.5',
+                      sendingOtp && 'animate-spin',
+                    )}
+                  />
+                  {sendingOtp
+                    ? 'Sending…'
+                    : canResendOtp
+                      ? 'Resend code'
+                      : `Resend available in ${resendCountdown}s`}
+                </button>
+                <span className="tabular-nums">
+                  {otpCode.length}/6 digits
+                </span>
+              </div>
+            </div>
+
+            {otpError ? (
+              <p
+                role="alert"
+                className="flex items-center gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs font-semibold text-destructive"
+              >
+                <AlertCircle className="size-3.5 shrink-0" />
+                {otpError}
+              </p>
+            ) : null}
           </div>
           <DialogFooter>
             <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
             </DialogClose>
             <Button
-              disabled={resolve.isPending || makerPassword.trim().length === 0}
-              onClick={() => approveMany(approveTargets, makerPassword.trim())}
+              disabled={
+                resolve.isPending ||
+                sendingOtp ||
+                otpCode.length !== 6 ||
+                !otpId
+              }
+              onClick={() => approveMany(approveTargets)}
             >
               <CheckCheck className="size-4" />
               {resolve.isPending

@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import { navGroups, type NavItem } from '@/components/layout/nav-config'
+import { navGroups, type NavItem, type NavSubItem } from '@/components/layout/nav-config'
 import { useApprovals, useTransactions } from '@/hooks/use-api'
 import { useAppDispatch, useAppSelector } from '@/store'
 import { logout } from '@/store/slices/auth-slice'
@@ -145,30 +145,44 @@ function SidebarNav() {
     transactions?.filter((t) => t.status === 'Pending').length ?? 0
 
   const nav = useMemo(() => {
-    return navGroups.map((group) => ({
-      ...group,
-      items: group.items.map((item) =>
-        item.children
-          ? {
+    const isMaker = user.access === 'Maker'
+
+    function isChildVisible(child: NavSubItem): boolean {
+      if (isMaker && child.path === '/account/approval-queue') return false
+      return true
+    }
+
+    const filteredGroups: typeof navGroups = []
+    for (const group of navGroups) {
+      if (isMaker && group.label === '' && group.items.some((i) => i.title === 'Administration')) {
+        continue
+      }
+      const processedGroup: typeof group = {
+        ...group,
+        items: group.items
+          .map((item) => {
+            if (!item.children) return item
+            const visibleChildren = item.children.filter(isChildVisible)
+            if (visibleChildren.length === 0) return null
+            return {
               ...item,
-              children: item.children
-                .filter(
-                  (child) =>
-                    !(child.path === '/account/approval-queue' && user.access === 'Maker'),
-                )
-                .map((child) => ({
-                  ...child,
-                  badge:
-                    child.path === '/account/approval-queue'
-                      ? pendingApprovals
-                      : child.path === '/payments/transactions'
-                        ? pendingTransactions
-                        : child.badge,
-                })),
+              children: visibleChildren.map((child) => ({
+                ...child,
+                badge:
+                  child.path === '/account/approval-queue'
+                    ? pendingApprovals
+                    : child.path === '/payments/transactions'
+                      ? pendingTransactions
+                      : child.badge,
+              })),
             }
-          : item,
-      ),
-    }))
+          })
+          .filter((x): x is NonNullable<typeof x> => x !== null),
+      }
+      if (processedGroup.items.length === 0) continue
+      filteredGroups.push(processedGroup)
+    }
+    return filteredGroups
   }, [user.access, pendingApprovals, pendingTransactions])
 
   const initialExpanded = useMemo(() => {

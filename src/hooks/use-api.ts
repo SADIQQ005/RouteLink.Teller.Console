@@ -82,9 +82,17 @@ export function useResolveApproval() {
     mutationFn: (args: {
       id: string
       decision: 'approve' | 'reject'
+      otpId?: string
+      otpCode?: string
       reason?: string
-      password?: string
-    }) => api.resolveApproval(args.id, args.decision, args.password),
+    }) =>
+      api.resolveApproval(
+        args.id,
+        args.decision,
+        args.otpId,
+        args.otpCode,
+        args.reason,
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.approvals })
       queryClient.invalidateQueries({ queryKey: queryKeys.stats })

@@ -2,6 +2,7 @@ import { ApiError } from '@/services/http'
 import * as statsService from '@/services/stats'
 import * as transactionsService from '@/services/transactions'
 import * as approvalsService from '@/services/approvals'
+import * as otpService from '@/services/otp'
 import { addNotification } from '@/lib/notifications'
 
 function isOffline(error: unknown): boolean {
@@ -157,7 +158,8 @@ export interface CreateTransactionInput {
   documents?: string[]
   beneficiaryAccount?: string
   beneficiaryBank?: string
-  password?: string
+  otpId: string
+  otpCode: string
 }
 
 const TIER_2_LIMIT = 5_000_000
@@ -204,6 +206,13 @@ export const api = {
     } catch (error) {
       if (!isOffline(error)) throw error
     }
+    const otpCheck = await otpService.verifyOtp({
+      otpId: payload.otpId,
+      code: payload.otpCode,
+    })
+    if (!otpCheck.valid) {
+      throw new ApiError(otpCheck.message || 'Customer OTP verification failed', 401)
+    }
     await delay(900)
     const created: Transaction = {
       beneficiary: payload.beneficiary,
@@ -239,7 +248,6 @@ export const api = {
       beneficiary: created.beneficiary,
     })
 
-    // Route the transfer into the approval queue (maker → checker flow)
     const requiredTier =
       created.amount >= TIER_3_LIMIT ? 3 : created.amount >= TIER_2_LIMIT ? 2 : 1
     const priority =
@@ -317,13 +325,24 @@ getApprovals: async (): Promise<ApprovalItem[]> => {
   resolveApproval: async (
     id: string,
     decision: 'approve' | 'reject',
-    password?: string,
+    otpId?: string,
+    otpCode?: string,
+    reason?: string,
   ) => {
     try {
-      await approvalsService.resolveApproval(id, decision, undefined, password)
+      await approvalsService.resolveApproval(id, decision, otpId, otpCode, reason)
       return { id, decision }
     } catch (error) {
       if (!isOffline(error)) throw error
+    }
+    if (decision === 'approve' && (!otpId || !otpCode)) {
+      throw new ApiError('Checker OTP is required for approval', 401)
+    }
+    if (decision === 'approve' && otpId && otpCode) {
+      const otpCheck = await otpService.verifyOtp({ otpId, code: otpCode })
+      if (!otpCheck.valid) {
+        throw new ApiError(otpCheck.message || 'Checker OTP verification failed', 401)
+      }
     }
     await delay(700)
     const item = approvals.find((a) => a.id === id)

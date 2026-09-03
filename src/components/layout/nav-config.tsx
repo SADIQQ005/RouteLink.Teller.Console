@@ -43,7 +43,7 @@ export const navGroups: NavGroup[] = [
         title: 'Payments',
         icon: Send,
         children: [
-          { title: 'New Transaction', path: '/payments/new' },
+          { title: 'Transfer', path: '/payments/new' },
           { title: 'Transactions', path: '/payments/transactions', badge: 3 },
         ],
       },

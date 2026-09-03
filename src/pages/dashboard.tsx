@@ -191,7 +191,7 @@ export function DashboardPage() {
         <Button asChild>
           <Link to="/payments/new">
             <Plus className="size-4" />
-            New Transaction
+            New Transfer
           </Link>
         </Button>
       </PageHeader>

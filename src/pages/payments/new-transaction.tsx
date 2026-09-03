@@ -7,9 +7,11 @@ import {
   ArrowRight,
   BadgeCheck,
   CircleDollarSign,
+  Clock,
   FileText,
-  KeyRound,
   LoaderCircle,
+  MessageSquare,
+  RefreshCw,
   Search,
   ShieldCheck,
   UploadCloud,
@@ -58,20 +60,12 @@ import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
 import { Separator } from '@/components/ui/separator'
 import { useCreateTransaction } from '@/hooks/use-api'
+import { useBanks } from '@/hooks/use-baas'
+import type { Bank } from '@/services/baas'
 import { formatCurrency } from '@/lib/format'
 import { api } from '@/lib/data'
 import { useAppSelector } from '@/store'
-
-const banks = [
-  'Access Bank Plc',
-  'Zenith Bank Plc',
-  'Guaranty Trust Bank',
-  'First Bank of Nigeria',
-  'Union Bank Plc',
-  'Sterling Bank Plc',
-  'Wema Bank Plc',
-  'Kuda Microfinance Bank',
-]
+import * as otpService from '@/services/otp'
 
 const FEE_RATE = 0.005
 
@@ -147,13 +141,40 @@ export function NewTransactionPage() {
   const user = useAppSelector((state) => state.auth.user)
   const createTx = useCreateTransaction()
 
+  const banksQuery = useBanks()
+
+  /**
+   * Fetch banks on render. If the initial fetch failed (network/502 etc.),
+   * retry once when the user opens the bank selector. If the list is already
+   * cached (previous successful load), no extra call is made on select.
+   */
+  function handleBankSelect() {
+    if (banksQuery.status === 'error' && !banksQuery.data) {
+      banksQuery.refetch()
+    }
+  }
+
+  const bankOptions: Bank[] =
+    banksQuery.data?.length ? banksQuery.data : []
+
+  const enrichingBanks =
+    banksQuery.status === 'pending' ||
+    (banksQuery.status === 'error' && !banksQuery.data)
+
   const [enquiring, setEnquiring] = useState(false)
   const [enquiryName, setEnquiryName] = useState<string | null>(null)
   const [documents, setDocuments] = useState<UploadedDoc[]>([])
   const [docsError, setDocsError] = useState<string | null>(null)
   const [amountDisplay, setAmountDisplay] = useState('')
-  const [confirmPasswordStep, setConfirmPasswordStep] = useState(false)
-  const [makerPassword, setMakerPassword] = useState('')
+  const [otpStep, setOtpStep] = useState(false)
+  const [otpCode, setOtpCode] = useState('')
+  const [otpId, setOtpId] = useState<string | null>(null)
+  const [otpSentTo, setOtpSentTo] = useState<string>('')
+  const [otpExpiresAt, setOtpExpiresAt] = useState<number>(0)
+  const [otpResendAfter, setOtpResendAfter] = useState<number>(0)
+  const [sendingOtp, setSendingOtp] = useState(false)
+  const [otpError, setOtpError] = useState<string | null>(null)
+  const [, setNowTick] = useState(0)
   const [sourceBalance, setSourceBalance] = useState<number | null>(null)
   const [sourceLookup, setSourceLookup] = useState<SourceLookup>({
     status: 'idle',
@@ -173,6 +194,13 @@ export function NewTransactionPage() {
   const canEnquire = bank.length > 0 && accountNumber.length === 10
   const fee = Number.isFinite(Number(amount)) ? Number(amount) * FEE_RATE : 0
   const total = Number.isFinite(Number(amount)) ? Number(amount) + fee : 0
+
+  const now = Date.now()
+  const otpExpiresInMs = Math.max(0, otpExpiresAt - now)
+  const otpExpiresInMin = Math.floor(otpExpiresInMs / 60000)
+  const otpExpiresInSec = Math.floor((otpExpiresInMs % 60000) / 1000)
+  const canResendOtp = otpResendAfter > 0 && now >= otpResendAfter && !sendingOtp
+  const resendCountdown = Math.max(0, Math.ceil((otpResendAfter - now) / 1000))
 
   useEffect(() => {
     if (sourceAccount.length !== 10) {
@@ -201,6 +229,12 @@ export function NewTransactionPage() {
       active = false
     }
   }, [sourceAccount])
+
+  useEffect(() => {
+    if (!otpStep) return
+    const id = window.setInterval(() => setNowTick((t) => t + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [otpStep])
 
   const balanceResolved =
     sourceLookup.status === 'resolved' && sourceBalance !== null
@@ -249,7 +283,34 @@ export function NewTransactionPage() {
     setDocsError(null)
   }
 
-  function requestSubmit(_values: FormValues) {
+  async function sendCustomerOtp() {
+    const values = form.getValues()
+    setSendingOtp(true)
+    setOtpError(null)
+    try {
+      const resp = await otpService.sendCustomerOtp({
+        sourceAccount: values.sourceAccount,
+        beneficiaryAccount: values.accountNumber,
+        amount: Number(values.amount) || 0,
+      })
+      setOtpId(resp.otpId)
+      setOtpSentTo(resp.sentTo)
+      setOtpExpiresAt(new Date(resp.expiresAt).getTime())
+      setOtpResendAfter(Date.now() + resp.resendAfter)
+      setOtpCode('')
+      toast.success('Customer OTP sent', {
+        description: `Verification code sent to ${resp.sentTo}. Ask the customer to read out the 6-digit code.`,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not send OTP'
+      toast.error('Failed to send OTP', { description: message })
+      setOtpError(message)
+    } finally {
+      setSendingOtp(false)
+    }
+  }
+
+  async function requestSubmit(_values: FormValues) {
     if (documents.length === 0) {
       setDocsError('Upload at least one supporting document')
       toast.error('Supporting document required', {
@@ -258,11 +319,27 @@ export function NewTransactionPage() {
       })
       return
     }
-    setMakerPassword('')
-    setConfirmPasswordStep(true)
+    setOtpCode('')
+    setOtpId(null)
+    setOtpError(null)
+    setOtpStep(true)
+    void sendCustomerOtp()
+  }
+
+  async function resendCustomerOtp() {
+    await sendCustomerOtp()
   }
 
   function confirmSubmit() {
+    if (!otpId) {
+      setOtpError('OTP session missing. Please request a new code.')
+      return
+    }
+    if (otpCode.trim().length !== 6) {
+      setOtpError('Enter the 6-digit code sent to the customer.')
+      return
+    }
+    setOtpError(null)
     const values = form.getValues()
     createTx.mutate(
       {
@@ -277,7 +354,8 @@ export function NewTransactionPage() {
         documents: documents.map((d) => d.name),
         beneficiaryAccount: values.accountNumber,
         beneficiaryBank: values.bank,
-        password: makerPassword.trim(),
+        otpId: otpId,
+        otpCode: otpCode.trim(),
       },
       {
         onSuccess: (tx) => {
@@ -294,13 +372,17 @@ export function NewTransactionPage() {
           setDocuments([])
           setDocsError(null)
           setEnquiryName(null)
-          setConfirmPasswordStep(false)
-          setMakerPassword('')
+          setOtpStep(false)
+          setOtpCode('')
+          setOtpId(null)
+          setOtpSentTo('')
+          setOtpExpiresAt(0)
+          setOtpResendAfter(0)
         },
-        onError: () => {
-          toast.error('Submission failed', {
-            description: 'Please review the form and try again.',
-          })
+        onError: (error) => {
+          const message = error instanceof Error ? error.message : 'Please review the form and try again.'
+          setOtpError(message)
+          toast.error('Submission failed', { description: message })
         },
       },
     )
@@ -309,7 +391,7 @@ export function NewTransactionPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="New Transaction"
+        title="Transfer"
         description="Transfer funds from a branch account to any bank account in Nigeria."
       />
 
@@ -411,14 +493,40 @@ export function NewTransactionPage() {
                         <FormItem>
                           <FormLabel>Beneficiary bank *</FormLabel>
                           <FormControl>
-                            <Select onValueChange={field.onChange} value={field.value}>
+                            <Select
+                              onValueChange={field.onChange}
+                              value={field.value}
+                              onOpenChange={(open) => {
+                                if (open) handleBankSelect()
+                              }}
+                              disabled={enrichingBanks}
+                            >
                               <SelectTrigger className="w-full">
-                                <SelectValue placeholder="Select bank" />
+                                <SelectValue
+                                  placeholder={
+                                    enrichingBanks
+                                      ? 'Loading banks…'
+                                      : 'Select bank'
+                                  }
+                                />
                               </SelectTrigger>
                               <SelectContent>
-                                {banks.map((bank) => (
-                                  <SelectItem key={bank} value={bank}>
-                                    {bank}
+                                {bankOptions.length === 0 &&
+                                  banksQuery.status === 'error' && (
+                                    <div className="rounded-lg p-4 text-sm text-muted-foreground">
+                                      Could not load banks.{' '}
+                                      <button
+                                        type="button"
+                                        className="font-semibold text-primary underline-offset-2 hover:underline"
+                                        onClick={() => banksQuery.refetch()}
+                                      >
+                                        Retry
+                                      </button>
+                                    </div>
+                                  )}
+                                {bankOptions.map((bank) => (
+                                  <SelectItem key={bank.bankCode} value={bank.bankCode}>
+                                    {bank.bankName}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -775,18 +883,23 @@ export function NewTransactionPage() {
         </div>
       </div>
 
-      {/* Maker password confirmation */}
+      {/* Customer OTP verification */}
       <Dialog
-        open={confirmPasswordStep}
+        open={otpStep}
         onOpenChange={(o) => {
-          if (!o) setConfirmPasswordStep(false)
+          if (!o) {
+            setOtpStep(false)
+            setOtpCode('')
+            setOtpId(null)
+            setOtpError(null)
+          }
         }}
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <KeyRound className="size-4 text-primary" />
-              Enter password to initiate transfer
+              <MessageSquare className="size-4 text-primary" />
+              Verify customer via OTP
             </DialogTitle>
             <DialogDescription>
               {beneficiaryName || 'Beneficiary'} ·{' '}
@@ -794,27 +907,102 @@ export function NewTransactionPage() {
               {sourceAccount ? `Debited from ${sourceAccount}.` : ''}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-2">
-            <Label htmlFor="maker-password">Enter password</Label>
-            <Input
-              id="maker-password"
-              type="password"
-              placeholder="Enter your password to authorise"
-              value={makerPassword}
-              onChange={(e) => setMakerPassword(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && makerPassword.trim().length > 0) {
-                  confirmSubmit()
-                }
-              }}
-            />
+          <div className="grid gap-3">
+            {sendingOtp ? (
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                <LoaderCircle className="size-4 animate-spin text-primary" />
+                Sending verification code to customer phone…
+              </div>
+            ) : otpSentTo ? (
+              <div className="flex items-center justify-between gap-2 rounded-lg border bg-emerald-50 dark:bg-emerald-500/10 px-4 py-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
+                  <span className="font-medium text-emerald-800 dark:text-emerald-300">
+                    Code sent to {otpSentTo}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 text-xs font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
+                  <Clock className="size-3.5" />
+                  {otpExpiresInMin}:{String(otpExpiresInSec).padStart(2, '0')}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="grid gap-2">
+              <Label htmlFor="customer-otp">Enter 6-digit OTP</Label>
+              <Input
+                id="customer-otp"
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                autoComplete="one-time-code"
+                placeholder="e.g. 482 901"
+                className="text-center text-xl font-bold tracking-[0.5em] tabular-nums font-mono"
+                value={otpCode}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, '').slice(0, 6)
+                  setOtpCode(digits)
+                  setOtpError(null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && otpCode.length === 6 && otpId) {
+                    confirmSubmit()
+                  }
+                }}
+                disabled={sendingOtp || !otpId}
+              />
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <button
+                  type="button"
+                  disabled={!canResendOtp || sendingOtp}
+                  onClick={resendCustomerOtp}
+                  className={cn(
+                    'inline-flex items-center gap-1 font-medium transition-colors',
+                    canResendOtp && !sendingOtp
+                      ? 'text-primary hover:underline'
+                      : 'cursor-not-allowed text-muted-foreground/60',
+                  )}
+                >
+                  <RefreshCw
+                    className={cn(
+                      'size-3.5',
+                      sendingOtp && 'animate-spin',
+                    )}
+                  />
+                  {sendingOtp
+                    ? 'Sending…'
+                    : canResendOtp
+                      ? 'Resend code'
+                      : `Resend available in ${resendCountdown}s`}
+                </button>
+                <span className="tabular-nums">
+                  {otpCode.length}/6 digits
+                </span>
+              </div>
+            </div>
+
+            {otpError ? (
+              <p
+                role="alert"
+                className="flex items-center gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs font-semibold text-destructive"
+              >
+                <AlertCircle className="size-3.5 shrink-0" />
+                {otpError}
+              </p>
+            ) : null}
           </div>
           <DialogFooter>
             <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
             </DialogClose>
             <Button
-              disabled={createTx.isPending || insufficient || makerPassword.trim().length === 0}
+              disabled={
+                createTx.isPending ||
+                insufficient ||
+                sendingOtp ||
+                otpCode.length !== 6 ||
+                !otpId
+              }
               onClick={confirmSubmit}
             >
               <ArrowRight className="size-4" />

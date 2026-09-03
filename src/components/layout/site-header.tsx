@@ -44,8 +44,8 @@ function notificationTitle(n: NotificationRecord): string {
 const BREADCRUMBS: Record<string, { crumbs: string[]; title: string }> = {
   '/dashboard': { crumbs: ['Dashboard'], title: 'Dashboard' },
   '/payments/new': {
-    crumbs: ['Payments', 'New Transaction'],
-    title: 'New Transaction',
+    crumbs: ['Payments', 'Transfer'],
+    title: 'Transfer',
   },
   '/payments/transactions': {
     crumbs: ['Payments', 'Transactions'],
