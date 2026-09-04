@@ -4,11 +4,23 @@ export interface Bank {
   bankName: string
 }
 
+/** Type of transfer. Values mirror the backend `TransferType` enum. */
+export const TransferType = {
+  IntraBank: 0,
+  InterBank: 1,
+} as const
+
+export type TransferType = (typeof TransferType)[keyof typeof TransferType]
+
+export const TRANSFER_TYPE_LABELS: Record<TransferType, string> = {
+  [TransferType.IntraBank]: 'Intra-bank',
+  [TransferType.InterBank]: 'Inter-bank',
+}
+
 /**
  * Request body for initiating a transfer.
  *
- * @property transferType - Type of transfer. Map to the enum before sending:
- *   `0` = ? (see BaaS contract), values may be extended by the backend.
+ * @property transferType - Type of transfer; maps to the backend `TransferType` enum.
  */
 export interface CreateTransferInput {
   debitAccountNumber: string
@@ -16,15 +28,36 @@ export interface CreateTransferInput {
   beneficiaryBankCode: string
   amount: number
   narration: string
-  transferType: number
+  transferType: TransferType
 }
 
-/** Response returned by the BaaS transfer endpoint. */
+/** Envelope returned by the BaaS transfer endpoint. */
+export interface CreateTransferResponse {
+  succeeded: boolean
+  value: {
+    transferRequestId: string
+    transactionReference: string
+    debitCustomerName: string
+    availableBalance: number
+    beneficiaryName: string
+    transferFee: number
+    totalDebitAmount: number
+    maskedPhoneForOtp: string
+  }
+  error: string
+  errorCode: string
+}
+
+/** Response returned by the BaaS transfer endpoint, unwrapped to its `value`. */
 export interface Transfer {
-  id: string
-  // Additional fields are populated by the BaaS contract as they become
-  // available during implementation.
-  [key: string]: unknown
+  transferRequestId: string
+  transactionReference: string
+  debitCustomerName: string
+  availableBalance: number
+  beneficiaryName: string
+  transferFee: number
+  totalDebitAmount: number
+  maskedPhoneForOtp: string
 }
 
 /** Body for verifying the customer OTP on a pending transfer. */
@@ -60,8 +93,35 @@ export type QueuePriority = (typeof QueuePriority)[keyof typeof QueuePriority]
 export interface ApprovalQueueParams {
   /** Optional priority filter: 0 = Low, 1 = Medium, 2 = High. */
   priority?: QueuePriority
-  /** Page number, defaults to 1. */
+  /** Page number. */
   page?: number
-  /** Page size, defaults to 20. */
+  /** Page size. */
   pageSize?: number
+}
+
+/** A single item in the approvals queue. */
+export interface ApprovalQueueItem {
+  id: string
+  transactionReference: string
+  makerUserId: string
+  debitAccountNumber: string
+  beneficiaryAccountNumber: string
+  beneficiaryName: string
+  amount: number
+  priority: number
+  createdAt: string
+}
+
+/** Envelope returned by the approvals queue endpoint. */
+export interface ApprovalQueueResponse {
+  snapshot: {
+    totalInQueue: number
+    totalVolumeInQueue: number
+    awaitingYourActionCount: number
+    highPriorityCount: number
+  }
+  items: ApprovalQueueItem[]
+  totalMatchingFilter: number
+  page: number
+  pageSize: number
 }

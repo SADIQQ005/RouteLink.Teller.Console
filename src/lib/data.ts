@@ -2,8 +2,8 @@ import { ApiError } from '@/services/http'
 import * as statsService from '@/services/stats'
 import * as transactionsService from '@/services/transactions'
 import * as approvalsService from '@/services/approvals'
-import * as otpService from '@/services/otp'
-import { addNotification } from '@/lib/notifications'
+import type { ApprovalsResult } from '@/services/approvals'
+import type { ApprovalQueueParams } from '@/services/baas/types'
 
 function isOffline(error: unknown): boolean {
   return error instanceof ApiError && error.status === 0
@@ -146,27 +146,6 @@ async function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-export interface CreateTransactionInput {
-  beneficiary: string
-  description: string
-  account: string
-  amount: number
-  currency: string
-  type: TransactionType
-  method: string
-  initiatedBy: string
-  documents?: string[]
-  beneficiaryAccount?: string
-  beneficiaryBank?: string
-  otpId: string
-  otpCode: string
-}
-
-const TIER_2_LIMIT = 5_000_000
-const TIER_3_LIMIT = 25_000_000
-const HIGH_PRIORITY = 1_000_000
-const MED_PRIORITY = 100_000
-
 let approvals: ApprovalItem[] = []
 
 export const api = {
@@ -198,89 +177,6 @@ export const api = {
     return transactions
   },
 
-  createTransaction: async (
-    payload: CreateTransactionInput,
-  ): Promise<Transaction> => {
-    try {
-      return await transactionsService.createTransaction(payload)
-    } catch (error) {
-      if (!isOffline(error)) throw error
-    }
-    const otpCheck = await otpService.verifyOtp({
-      otpId: payload.otpId,
-      code: payload.otpCode,
-    })
-    if (!otpCheck.valid) {
-      throw new ApiError(otpCheck.message || 'Customer OTP verification failed', 401)
-    }
-    await delay(900)
-    const created: Transaction = {
-      beneficiary: payload.beneficiary,
-      description: payload.description,
-      account: payload.account,
-      amount: payload.amount,
-      currency: payload.currency,
-      type: payload.type,
-      method: payload.method,
-      initiatedBy: payload.initiatedBy,
-      documents: payload.documents,
-      id: `txn_${Date.now()}`,
-      reference: `TRX-260827-${String(Math.floor(1000 + Math.random() * 9000))}`,
-      status: 'Pending',
-      date: new Date().toLocaleString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-    }
-    transactions = [created, ...transactions]
-
-    const currentBalance = balances[payload.account]
-    if (currentBalance !== undefined) {
-      balances[payload.account] = Math.max(0, currentBalance - payload.amount)
-    }
-
-    addNotification({
-      kind: 'pending',
-      reference: created.reference,
-      beneficiary: created.beneficiary,
-    })
-
-    const requiredTier =
-      created.amount >= TIER_3_LIMIT ? 3 : created.amount >= TIER_2_LIMIT ? 2 : 1
-    const priority =
-      created.amount >= HIGH_PRIORITY
-        ? ('High' as const)
-        : created.amount >= MED_PRIORITY
-          ? ('Medium' as const)
-          : ('Low' as const)
-    approvals = [
-      {
-        id: `app_${Date.now()}`,
-        reference: created.reference,
-        beneficiary: created.beneficiary,
-        beneficiaryAccount: payload.beneficiaryAccount ?? '—',
-        beneficiaryBank: payload.beneficiaryBank ?? '—',
-        sourceAccount: payload.account,
-        amount: created.amount,
-        currency: created.currency,
-        type: created.type,
-        initiatedBy: created.initiatedBy,
-        tier: 1,
-        requiredTier,
-        priority,
-        submittedAt: created.date,
-        method: created.method,
-        narration: created.description || 'Bank account transfer',
-        documents: payload.documents,
-      },
-      ...approvals,
-    ]
-    return created
-  },
-
   accountLookup: async (accountNumber: string): Promise<AccountBalance> => {
     try {
       return await transactionsService.getAccountBalance(accountNumber)
@@ -298,70 +194,45 @@ export const api = {
     }
   },
 
-  updateTransactionStatus: async (
-    id: string,
-    status: TransactionStatus,
-  ): Promise<Transaction> => {
+  getApprovals: async (
+    params: ApprovalQueueParams = {},
+  ): Promise<ApprovalsResult> => {
     try {
-      return await transactionsService.setTransactionStatus(id, status)
-    } catch (error) {
-      if (!isOffline(error)) throw error
-    }
-    await delay(400)
-    transactions = transactions.map((t) => (t.id === id ? { ...t, status } : t))
-    return transactions.find((t) => t.id === id)!
-  },
-
-getApprovals: async (): Promise<ApprovalItem[]> => {
-    try {
-      return await approvalsService.getApprovals()
+      return await approvalsService.getApprovals(params)
     } catch (error) {
       if (!isOffline(error)) throw error
     }
     await delay(550)
-    return approvals
+    return {
+      items: approvals,
+      snapshot: {
+        totalInQueue: approvals.length,
+        totalVolumeInQueue: approvals.reduce((s, a) => s + a.amount, 0),
+        awaitingYourActionCount: approvals.length,
+        highPriorityCount: approvals.filter((a) => a.priority === 'High').length,
+      },
+      totalMatchingFilter: approvals.length,
+      page: 1,
+      pageSize: approvals.length,
+    }
   },
 
-  resolveApproval: async (
-    id: string,
-    decision: 'approve' | 'reject',
-    otpId?: string,
-    otpCode?: string,
-    reason?: string,
-  ) => {
+  rejectApproval: async (id: string, reason: string) => {
     try {
-      await approvalsService.resolveApproval(id, decision, otpId, otpCode, reason)
-      return { id, decision }
+      await approvalsService.rejectApproval(id, reason)
+      return { id, decision: 'reject' as const }
     } catch (error) {
       if (!isOffline(error)) throw error
-    }
-    if (decision === 'approve' && (!otpId || !otpCode)) {
-      throw new ApiError('Checker OTP is required for approval', 401)
-    }
-    if (decision === 'approve' && otpId && otpCode) {
-      const otpCheck = await otpService.verifyOtp({ otpId, code: otpCode })
-      if (!otpCheck.valid) {
-        throw new ApiError(otpCheck.message || 'Checker OTP verification failed', 401)
-      }
     }
     await delay(700)
     const item = approvals.find((a) => a.id === id)
     if (item) {
       approvals = approvals.filter((a) => a.id !== id)
       transactions = transactions.map((t) =>
-        t.reference === item.reference
-          ? { ...t, status: decision === 'approve' ? 'Success' : 'Failed' }
-          : t,
+        t.reference === item.reference ? { ...t, status: 'Failed' } : t,
       )
-      if (decision === 'approve') {
-        addNotification({
-          kind: 'approved',
-          reference: item.reference,
-          beneficiary: item.beneficiary,
-        })
-      }
     }
-    return { id, decision }
+    return { id, decision: 'reject' as const }
   },
 
   getUsers: async (): Promise<UserRecord[]> => {

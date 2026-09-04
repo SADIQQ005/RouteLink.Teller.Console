@@ -44,7 +44,7 @@ export function useCreateBaasTransfer() {
     mutationFn: (payload: CreateTransferInput) => createTransfer(payload),
     onSuccess: (transfer) => {
       queryClient.invalidateQueries({
-        queryKey: baasQueryKeys.transfer(transfer.id),
+        queryKey: baasQueryKeys.transfer(transfer.transferRequestId),
       })
       queryClient.invalidateQueries({ queryKey: ['baas'] })
     },

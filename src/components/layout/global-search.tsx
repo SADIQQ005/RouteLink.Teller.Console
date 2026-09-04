@@ -71,7 +71,7 @@ export function GlobalSearch() {
         to: '/payments/transactions',
       }))
 
-    const approvalResults: SearchResult[] = (approvals ?? [])
+    const approvalResults: SearchResult[] = (approvals?.items ?? [])
       .filter((a) => matchesApproval(a, q))
       .slice(0, 6)
       .map((a) => ({

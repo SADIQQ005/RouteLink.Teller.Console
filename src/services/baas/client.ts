@@ -5,6 +5,8 @@ import axios, {
 } from 'axios'
 import { BAAS_BASE_URL, REQUEST_TIMEOUT_MS } from '@/services/config'
 import { ApiError, getToken } from '@/services/http'
+import { store } from '@/store'
+import { logout } from '@/store/slices/auth-slice'
 
 function toApiError(error: unknown): ApiError {
   if (axios.isAxiosError(error)) {
@@ -61,7 +63,14 @@ export function createBaasClient(): AxiosInstance {
 
   instance.interceptors.response.use(
     (response) => response,
-    (error) => Promise.reject(toApiError(error)),
+    (error) => {
+      // A 401 while a token is present means the token is expired/invalid.
+      // Sign the user out so they are returned to the login screen.
+      if (axios.isAxiosError(error) && error.response?.status === 401 && getToken()) {
+        store.dispatch(logout())
+      }
+      return Promise.reject(toApiError(error))
+    },
   )
 
   return instance

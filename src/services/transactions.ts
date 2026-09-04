@@ -1,10 +1,9 @@
 import { http } from '@/services/http'
 import { createTransfer } from '@/services/baas/transfers'
+import { TransferType, type TransferType as TransferTypeValue, type Transfer } from '@/services/baas/types'
 import type {
   AccountBalance,
-  CreateTransactionInput,
   Transaction,
-  TransactionStatus,
 } from '@/lib/data'
 
 /**
@@ -15,32 +14,33 @@ export function getTransactions(): Promise<Transaction[]> {
   return http.get<Transaction[]>('/transactions')
 }
 
+export interface InitiateTransferInput {
+  account: string
+  beneficiaryAccount: string
+  beneficiaryBank: string
+  amount: number
+  description: string
+  transferType?: number
+}
+
 /**
- * Initiate a transfer via the BaaS API.
+ * Initiate a transfer via the BaaS API only. The backend immediately sends a
+ * 6-digit OTP to the customer's phone; the masked destination is returned so
+ * the consent screen can show it.
  * Mapped to: POST /api/v1/routeops/transfers
  */
-export function createTransaction(
-  payload: CreateTransactionInput,
-): Promise<Transaction> {
+export function initiateTransfer(
+  payload: InitiateTransferInput,
+): Promise<Transfer> {
   return createTransfer({
     debitAccountNumber: payload.account,
     beneficiaryAccountNumber: payload.beneficiaryAccount ?? '',
     beneficiaryBankCode: payload.beneficiaryBank ?? '',
     amount: payload.amount,
     narration: payload.description,
-    transferType: 0,
-  }) as unknown as Promise<Transaction>
-}
-
-/**
- * Update a transaction's status. No dedicated BaaS (routeops) endpoint
- * exists for this yet, so it continues to use the first-party API client.
- */
-export function setTransactionStatus(
-  id: string,
-  status: TransactionStatus,
-): Promise<Transaction> {
-  return http.patch<Transaction>(`/transactions/${id}/status`, { status })
+    transferType: (payload.transferType ??
+      TransferType.IntraBank) as TransferTypeValue,
+  })
 }
 
 /**

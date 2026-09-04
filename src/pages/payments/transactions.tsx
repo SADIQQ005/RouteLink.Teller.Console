@@ -31,6 +31,8 @@ import { useTransactions } from '@/hooks/use-api'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { TransactionStatus } from '@/lib/data'
+import { useAppSelector } from '@/store'
+import { canTransfer } from '@/store/slices/auth-slice'
 
 const STATUS_FILTERS: Array<'All' | TransactionStatus> = [
   'All',
@@ -50,6 +52,7 @@ const STATUS_TONE: Record<TransactionStatus, string> = {
 
 export function TransactionsPage() {
   const { data: transactions, isLoading, isFetching, refetch } = useTransactions()
+  const user = useAppSelector((state) => state.auth.user)
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<'All' | TransactionStatus>('All')
 
@@ -99,12 +102,14 @@ export function TransactionsPage() {
             />
             Refresh
           </Button>
-          <Button size="sm" asChild>
-            <Link to="/payments/new">
-              <Plus className="size-4" />
-              New payment
-            </Link>
-          </Button>
+          {canTransfer(user) ? (
+            <Button size="sm" asChild>
+              <Link to="/payments/new">
+                <Plus className="size-4" />
+                New payment
+              </Link>
+            </Button>
+          ) : null}
         </div>
       </PageHeader>
 

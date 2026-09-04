@@ -1,6 +1,13 @@
-import { ApiError, http, setToken } from '@/services/http'
-import { makerUser, checkerUser, pickDemoUser } from '@/lib/demo-users'
-import type { User } from '@/store/slices/auth-slice'
+import { setToken } from '@/services/http'
+import { entraIdLogin } from '@/services/baas/auth'
+import {
+  claimString,
+  decodeJwtPayload,
+  ENTRA_CLAIMS,
+  roleClaimValues,
+  type EntraIdClaims,
+} from '@/services/jwt'
+import type { AccessRole, User } from '@/store/slices/auth-slice'
 
 export interface LoginInput {
   email: string
@@ -12,62 +19,68 @@ export interface AuthSession {
   user: User
 }
 
-interface AuthResponse {
-  token: string
-  user: Partial<User>
+const ROLE_CLAIMS = {
+  TELLER: 'MFB_TELLER',
+  MAKER: 'MFB_MAKER',
+  CHECKER: 'MFB_CHECKER',
+} as const
+
+function rolesFromClaims(claims: EntraIdClaims): AccessRole[] {
+  const values = roleClaimValues(claims)
+  const roles: AccessRole[] = []
+  if (values.includes(ROLE_CLAIMS.TELLER)) roles.push('Teller')
+  if (values.includes(ROLE_CLAIMS.MAKER)) roles.push('Maker')
+  if (values.includes(ROLE_CLAIMS.CHECKER)) roles.push('Checker')
+  return roles
 }
 
-function normalizeUser(raw: Partial<User>, fallback: User): User {
+function splitName(name: string): { firstName: string; lastName: string } {
+  const parts = name.trim().split(/\s+/)
+  const firstName = parts[0] ?? ''
+  const lastName = parts.slice(1).join(' ') || firstName
+  return { firstName, lastName }
+}
+
+function claimsToUser(claims: EntraIdClaims): User {
+  const name = claimString(claims, ENTRA_CLAIMS.name) ||
+    claimString(claims, ENTRA_CLAIMS.preferredUsername)
+  const { firstName, lastName } = splitName(name)
+  const roles = rolesFromClaims(claims)
+  const tier: User['tier'] = roles.includes('Checker')
+    ? 'Checker'
+    : roles.includes('Maker')
+      ? 'Maker'
+      : 'Teller'
   return {
-    id: raw.id ?? fallback.id,
-    firstName: raw.firstName ?? fallback.firstName,
-    lastName: raw.lastName ?? fallback.lastName,
-    email: raw.email ?? fallback.email,
-    role: raw.role ?? fallback.role,
-    branch: raw.branch ?? fallback.branch,
-    tier: raw.tier === undefined ? fallback.tier : mapTier(raw.tier),
-    access: raw.access ?? fallback.access,
-    lastLogin:
-      raw.lastLogin ??
-      new Date().toLocaleString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-    twoFactorEnabled: raw.twoFactorEnabled ?? fallback.twoFactorEnabled,
+    id:
+      claimString(claims, ENTRA_CLAIMS.nameIdentifier) ||
+      claimString(claims, ENTRA_CLAIMS.preferredUsername) ||
+      name,
+    firstName,
+    lastName,
+    email: claimString(claims, ENTRA_CLAIMS.preferredUsername),
+    role: roles.join(' / ') || 'Teller',
+    branch: '',
+    tier,
+    roles,
+    lastLogin: new Date().toLocaleString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
+    twoFactorEnabled: false,
   }
-}
-
-function mapTier(tier: User['tier']): User['tier'] {
-  if (tier === 'Maker' || tier === 'Checker') return tier
-  return 'Maker'
-}
-
-async function demoLogin(email: string): Promise<AuthSession> {
-  await new Promise((resolve) => setTimeout(resolve, 550))
-  const user = pickDemoUser(email)
-  const token = `demo-${user.access.toLowerCase()}-${Date.now()}`
-  setToken(token)
-  return { token, user }
 }
 
 export async function login(input: LoginInput): Promise<AuthSession> {
-  try {
-    const response = await http.post<AuthResponse>('/auth/login', input)
-    const fallback = pickDemoUser(input.email)
-    const user = normalizeUser(response.user, fallback)
-    setToken(response.token)
-    return { token: response.token, user }
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 0) {
-      return demoLogin(input.email)
-    }
-    throw error
-  }
-}
-
-export function getDemoUsers(): { maker: User; checker: User } {
-  return { maker: makerUser, checker: checkerUser }
+  const response = await entraIdLogin({
+    usernameOrEmail: input.email,
+    password: input.password,
+  })
+  setToken(response.accessToken)
+  const claims = decodeJwtPayload(response.accessToken)
+  const user = claimsToUser(claims)
+  return { token: response.accessToken, user }
 }

@@ -12,7 +12,12 @@ import { cn } from '@/lib/utils'
 import { navGroups, type NavItem, type NavSubItem } from '@/components/layout/nav-config'
 import { useApprovals, useTransactions } from '@/hooks/use-api'
 import { useAppDispatch, useAppSelector } from '@/store'
-import { logout } from '@/store/slices/auth-slice'
+import {
+  canAdminister,
+  canTransfer,
+  canViewApprovals,
+  logout,
+} from '@/store/slices/auth-slice'
 
 const BADGE_COLORS: Record<string, string> = {
   orange: 'bg-gradient-to-b from-orange-400 to-orange-500 text-white shadow-[0_1px_0_rgba(255,255,255,0.3)_inset,0_4px_10px_-3px_rgba(249,115,22,0.45)]',
@@ -137,24 +142,29 @@ function NavItemRow({
 function SidebarNav() {
   const { pathname } = useLocation()
   const user = useAppSelector((state) => state.auth.user)
-  const { data: approvals } = useApprovals()
+  const { data: approvals } = useApprovals({}, canViewApprovals(user))
   const { data: transactions } = useTransactions()
 
-  const pendingApprovals = approvals?.length ?? 0
+  const pendingApprovals = approvals?.snapshot.awaitingYourActionCount ?? 0
   const pendingTransactions =
     transactions?.filter((t) => t.status === 'Pending').length ?? 0
 
   const nav = useMemo(() => {
-    const isMaker = user.access === 'Maker'
+    // Administration is reserved for users who hold BOTH Maker and Checker roles.
+    const showAdministration = canAdminister(user)
 
     function isChildVisible(child: NavSubItem): boolean {
-      if (isMaker && child.path === '/account/approval-queue') return false
+      if (child.path === '/payments/new' && !canTransfer(user)) return false
+      if (child.path === '/account/approval-queue' && !canViewApprovals(user)) return false
       return true
     }
 
     const filteredGroups: typeof navGroups = []
     for (const group of navGroups) {
-      if (isMaker && group.label === '' && group.items.some((i) => i.title === 'Administration')) {
+      if (
+        !showAdministration &&
+        group.items.some((i) => i.title === 'Administration')
+      ) {
         continue
       }
       const processedGroup: typeof group = {
@@ -183,7 +193,7 @@ function SidebarNav() {
       filteredGroups.push(processedGroup)
     }
     return filteredGroups
-  }, [user.access, pendingApprovals, pendingTransactions])
+  }, [user, pendingApprovals, pendingTransactions])
 
   const initialExpanded = useMemo(() => {
     const s = new Set<string>(['Payments'])
@@ -334,7 +344,7 @@ function SidebarUser() {
               {user.firstName} {user.lastName}
             </p>
             <p className="truncate text-[11.5px] font-medium text-muted-foreground">
-              {user.access} · {user.role}
+              {user.roles.length ? user.roles.join(' / ') : 'Teller'} · {user.role}
             </p>
           </div>
         </NavLink>

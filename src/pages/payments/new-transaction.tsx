@@ -7,11 +7,9 @@ import {
   ArrowRight,
   BadgeCheck,
   CircleDollarSign,
-  Clock,
   FileText,
   LoaderCircle,
   MessageSquare,
-  RefreshCw,
   Search,
   ShieldCheck,
   UploadCloud,
@@ -59,13 +57,13 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
 import { Separator } from '@/components/ui/separator'
-import { useCreateTransaction } from '@/hooks/use-api'
 import { useBanks } from '@/hooks/use-baas'
+import { initiateTransfer } from '@/services/transactions'
+import { verifyCustomerOtp } from '@/services/baas/transfers'
 import type { Bank } from '@/services/baas'
+import { TransferType, TRANSFER_TYPE_LABELS } from '@/services/baas/types'
 import { formatCurrency } from '@/lib/format'
 import { api } from '@/lib/data'
-import { useAppSelector } from '@/store'
-import * as otpService from '@/services/otp'
 
 const FEE_RATE = 0.005
 
@@ -96,6 +94,7 @@ const schema = z.object({
     .string()
     .regex(/^\d{10}$/, 'Enter a valid 10-digit account number'),
   bank: z.string().min(1, 'Select the beneficiary bank'),
+  transferType: z.enum(['0', '1']),
   amount: z.coerce
     .number({ invalid_type_error: 'Enter the transfer amount' })
     .positive('Amount must be greater than zero'),
@@ -119,6 +118,7 @@ const defaultValues: FormValues = {
   beneficiaryName: '',
   accountNumber: '',
   bank: '',
+  transferType: String(TransferType.InterBank) as '0' | '1',
   amount: undefined as unknown as number,
   narration: '',
 }
@@ -138,9 +138,6 @@ function parseAmountInput(raw: string): number | undefined {
 }
 
 export function NewTransactionPage() {
-  const user = useAppSelector((state) => state.auth.user)
-  const createTx = useCreateTransaction()
-
   const banksQuery = useBanks()
 
   /**
@@ -168,13 +165,10 @@ export function NewTransactionPage() {
   const [amountDisplay, setAmountDisplay] = useState('')
   const [otpStep, setOtpStep] = useState(false)
   const [otpCode, setOtpCode] = useState('')
-  const [otpId, setOtpId] = useState<string | null>(null)
-  const [otpSentTo, setOtpSentTo] = useState<string>('')
-  const [otpExpiresAt, setOtpExpiresAt] = useState<number>(0)
-  const [otpResendAfter, setOtpResendAfter] = useState<number>(0)
+  const [transferRequestId, setTransferRequestId] = useState<string | null>(null)
+  const [maskedPhone, setMaskedPhone] = useState('')
   const [sendingOtp, setSendingOtp] = useState(false)
   const [otpError, setOtpError] = useState<string | null>(null)
-  const [, setNowTick] = useState(0)
   const [sourceBalance, setSourceBalance] = useState<number | null>(null)
   const [sourceLookup, setSourceLookup] = useState<SourceLookup>({
     status: 'idle',
@@ -194,13 +188,6 @@ export function NewTransactionPage() {
   const canEnquire = bank.length > 0 && accountNumber.length === 10
   const fee = Number.isFinite(Number(amount)) ? Number(amount) * FEE_RATE : 0
   const total = Number.isFinite(Number(amount)) ? Number(amount) + fee : 0
-
-  const now = Date.now()
-  const otpExpiresInMs = Math.max(0, otpExpiresAt - now)
-  const otpExpiresInMin = Math.floor(otpExpiresInMs / 60000)
-  const otpExpiresInSec = Math.floor((otpExpiresInMs % 60000) / 1000)
-  const canResendOtp = otpResendAfter > 0 && now >= otpResendAfter && !sendingOtp
-  const resendCountdown = Math.max(0, Math.ceil((otpResendAfter - now) / 1000))
 
   useEffect(() => {
     if (sourceAccount.length !== 10) {
@@ -229,12 +216,6 @@ export function NewTransactionPage() {
       active = false
     }
   }, [sourceAccount])
-
-  useEffect(() => {
-    if (!otpStep) return
-    const id = window.setInterval(() => setNowTick((t) => t + 1), 1000)
-    return () => window.clearInterval(id)
-  }, [otpStep])
 
   const balanceResolved =
     sourceLookup.status === 'resolved' && sourceBalance !== null
@@ -283,34 +264,7 @@ export function NewTransactionPage() {
     setDocsError(null)
   }
 
-  async function sendCustomerOtp() {
-    const values = form.getValues()
-    setSendingOtp(true)
-    setOtpError(null)
-    try {
-      const resp = await otpService.sendCustomerOtp({
-        sourceAccount: values.sourceAccount,
-        beneficiaryAccount: values.accountNumber,
-        amount: Number(values.amount) || 0,
-      })
-      setOtpId(resp.otpId)
-      setOtpSentTo(resp.sentTo)
-      setOtpExpiresAt(new Date(resp.expiresAt).getTime())
-      setOtpResendAfter(Date.now() + resp.resendAfter)
-      setOtpCode('')
-      toast.success('Customer OTP sent', {
-        description: `Verification code sent to ${resp.sentTo}. Ask the customer to read out the 6-digit code.`,
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not send OTP'
-      toast.error('Failed to send OTP', { description: message })
-      setOtpError(message)
-    } finally {
-      setSendingOtp(false)
-    }
-  }
-
-  async function requestSubmit(_values: FormValues) {
+  async function requestSubmit(values: FormValues) {
     if (documents.length === 0) {
       setDocsError('Upload at least one supporting document')
       toast.error('Supporting document required', {
@@ -320,19 +274,38 @@ export function NewTransactionPage() {
       return
     }
     setOtpCode('')
-    setOtpId(null)
+    setTransferRequestId(null)
+    setMaskedPhone('')
     setOtpError(null)
-    setOtpStep(true)
-    void sendCustomerOtp()
+    setSendingOtp(true)
+    try {
+      const transfer = await initiateTransfer({
+        account: values.sourceAccount,
+        beneficiaryAccount: values.accountNumber,
+        beneficiaryBank: values.bank,
+        amount: Number(values.amount) || 0,
+        description: values.narration || 'Bank transfer',
+        transferType: Number(values.transferType),
+      })
+      setTransferRequestId(transfer.transferRequestId)
+      setMaskedPhone(transfer.maskedPhoneForOtp)
+      setOtpStep(true)
+      toast.success('Verification code sent', {
+        description: `A 6-digit code was sent to ${transfer.maskedPhoneForOtp}. Ask the customer to read it out.`,
+      })
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Could not initiate the transfer.'
+      setOtpError(message)
+      toast.error('Failed to initiate transfer', { description: message })
+    } finally {
+      setSendingOtp(false)
+    }
   }
 
-  async function resendCustomerOtp() {
-    await sendCustomerOtp()
-  }
-
-  function confirmSubmit() {
-    if (!otpId) {
-      setOtpError('OTP session missing. Please request a new code.')
+  async function confirmSubmit() {
+    if (!transferRequestId) {
+      setOtpError('Transfer session missing. Please resubmit.')
       return
     }
     if (otpCode.trim().length !== 6) {
@@ -340,52 +313,32 @@ export function NewTransactionPage() {
       return
     }
     setOtpError(null)
-    const values = form.getValues()
-    createTx.mutate(
-      {
-        beneficiary: values.beneficiaryName,
-        description: values.narration || 'Bank transfer',
-        account: values.sourceAccount,
-        amount: values.amount,
-        currency: 'NGN',
-        type: 'Debit',
-        method: 'Bank Transfer',
-        initiatedBy: `${user.firstName} ${user.lastName}`,
-        documents: documents.map((d) => d.name),
-        beneficiaryAccount: values.accountNumber,
-        beneficiaryBank: values.bank,
-        otpId: otpId,
-        otpCode: otpCode.trim(),
-      },
-      {
-        onSuccess: (tx) => {
-          toast.success('Transfer submitted', {
-            description: `Reference ${tx.reference} was created and routed for ${
-              tx.status === 'Pending' ? 'approval' : 'processing'
-            }.`,
-          })
-          form.reset(defaultValues)
-          form.resetField('amount', {
-            defaultValue: '' as unknown as number,
-          })
-          setAmountDisplay('')
-          setDocuments([])
-          setDocsError(null)
-          setEnquiryName(null)
-          setOtpStep(false)
-          setOtpCode('')
-          setOtpId(null)
-          setOtpSentTo('')
-          setOtpExpiresAt(0)
-          setOtpResendAfter(0)
-        },
-        onError: (error) => {
-          const message = error instanceof Error ? error.message : 'Please review the form and try again.'
-          setOtpError(message)
-          toast.error('Submission failed', { description: message })
-        },
-      },
-    )
+    setSendingOtp(true)
+    try {
+      await verifyCustomerOtp(transferRequestId, { code: otpCode.trim() })
+      toast.success('Transfer submitted', {
+        description: `The transfer was verified and routed for approval.`,
+      })
+      form.reset(defaultValues)
+      form.resetField('amount', {
+        defaultValue: '' as unknown as number,
+      })
+      setAmountDisplay('')
+      setDocuments([])
+      setDocsError(null)
+      setEnquiryName(null)
+      setOtpStep(false)
+      setOtpCode('')
+      setTransferRequestId(null)
+      setMaskedPhone('')
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'OTP verification failed.'
+      setOtpError(message)
+      toast.error('Verification failed', { description: message })
+    } finally {
+      setSendingOtp(false)
+    }
   }
 
   return (
@@ -618,6 +571,36 @@ export function NewTransactionPage() {
                     </span>
                     <h3 className="text-sm font-semibold">Amount</h3>
                   </div>
+
+                  <FormField
+                    control={form.control}
+                    name="transferType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Transfer type *</FormLabel>
+                        <FormControl>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Select transfer type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(Object.keys(TRANSFER_TYPE_LABELS) as unknown as TransferType[]).map(
+                                (key) => (
+                                  <SelectItem key={key} value={String(key)}>
+                                    {TRANSFER_TYPE_LABELS[key]}
+                                  </SelectItem>
+                                ),
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
                   <FormField
                     control={form.control}
@@ -859,11 +842,11 @@ export function NewTransactionPage() {
           <Button
             size="lg"
             className="w-full"
-            disabled={createTx.isPending || lookingUp || insufficient}
+            disabled={sendingOtp || lookingUp || insufficient}
             onClick={form.handleSubmit(requestSubmit)}
           >
             <ArrowRight className="size-4" />
-            {createTx.isPending ? 'Submitting…' : 'Review & submit transfer'}
+            {sendingOtp ? 'Initiating…' : 'Review & submit transfer'}
           </Button>
 
           <Card className="gap-3">
@@ -890,7 +873,8 @@ export function NewTransactionPage() {
           if (!o) {
             setOtpStep(false)
             setOtpCode('')
-            setOtpId(null)
+            setTransferRequestId(null)
+            setMaskedPhone('')
             setOtpError(null)
           }
         }}
@@ -908,25 +892,20 @@ export function NewTransactionPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3">
-            {sendingOtp ? (
-              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-                <LoaderCircle className="size-4 animate-spin text-primary" />
-                Sending verification code to customer phone…
-              </div>
-            ) : otpSentTo ? (
+            {maskedPhone ? (
               <div className="flex items-center justify-between gap-2 rounded-lg border bg-emerald-50 dark:bg-emerald-500/10 px-4 py-3 text-sm">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
                   <span className="font-medium text-emerald-800 dark:text-emerald-300">
-                    Code sent to {otpSentTo}
+                    Code sent to {maskedPhone}
                   </span>
                 </div>
-                <div className="flex items-center gap-1 text-xs font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
-                  <Clock className="size-3.5" />
-                  {otpExpiresInMin}:{String(otpExpiresInSec).padStart(2, '0')}
-                </div>
               </div>
-            ) : null}
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                The verification code is being sent to the customer's phone.
+              </p>
+            )}
 
             <div className="grid gap-2">
               <Label htmlFor="customer-otp">Enter 6-digit OTP</Label>
@@ -945,36 +924,13 @@ export function NewTransactionPage() {
                   setOtpError(null)
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && otpCode.length === 6 && otpId) {
-                    confirmSubmit()
+                  if (e.key === 'Enter' && otpCode.length === 6 && transferRequestId) {
+                    void confirmSubmit()
                   }
                 }}
-                disabled={sendingOtp || !otpId}
+                disabled={sendingOtp || !transferRequestId}
               />
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <button
-                  type="button"
-                  disabled={!canResendOtp || sendingOtp}
-                  onClick={resendCustomerOtp}
-                  className={cn(
-                    'inline-flex items-center gap-1 font-medium transition-colors',
-                    canResendOtp && !sendingOtp
-                      ? 'text-primary hover:underline'
-                      : 'cursor-not-allowed text-muted-foreground/60',
-                  )}
-                >
-                  <RefreshCw
-                    className={cn(
-                      'size-3.5',
-                      sendingOtp && 'animate-spin',
-                    )}
-                  />
-                  {sendingOtp
-                    ? 'Sending…'
-                    : canResendOtp
-                      ? 'Resend code'
-                      : `Resend available in ${resendCountdown}s`}
-                </button>
+              <div className="flex items-center justify-end text-xs text-muted-foreground">
                 <span className="tabular-nums">
                   {otpCode.length}/6 digits
                 </span>
@@ -997,16 +953,15 @@ export function NewTransactionPage() {
             </DialogClose>
             <Button
               disabled={
-                createTx.isPending ||
-                insufficient ||
                 sendingOtp ||
+                insufficient ||
                 otpCode.length !== 6 ||
-                !otpId
+                !transferRequestId
               }
               onClick={confirmSubmit}
             >
               <ArrowRight className="size-4" />
-              {createTx.isPending ? 'Submitting…' : 'Confirm & submit transfer'}
+              {sendingOtp ? 'Verifying…' : 'Confirm & submit transfer'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
-import { CircleDollarSign, LockKeyhole, LoaderCircle, Mail } from 'lucide-react'
+import { CircleDollarSign, Eye, EyeOff, LockKeyhole, LoaderCircle, Mail } from 'lucide-react'
 import { z } from 'zod'
 
 import { Button } from '@/components/ui/button'
@@ -16,15 +16,13 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { Checkbox } from '@/components/ui/checkbox'
 import { useAppDispatch } from '@/store'
 import { loginSuccess } from '@/store/slices/auth-slice'
 import * as authService from '@/services/auth'
 
 const loginSchema = z.object({
   email: z.string().email('Enter a valid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-  remember: z.boolean(),
+  password: z.string().min(1, 'Enter your password'),
 })
 
 type LoginValues = z.infer<typeof loginSchema>
@@ -32,10 +30,11 @@ type LoginValues = z.infer<typeof loginSchema>
 export function LoginPage() {
   const dispatch = useAppDispatch()
   const [submitting, setSubmitting] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   const form = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: 'adaeze.okafor@routelink.io', password: '', remember: true },
+    defaultValues: { email: '', password: '' },
   })
 
   async function completeLogin(values: LoginValues) {
@@ -46,12 +45,9 @@ export function LoginPage() {
         password: values.password,
       })
       dispatch(loginSuccess({ user: session.user }))
-      toast.success(
-        `Welcome back, ${session.user.firstName}`,
-        {
-          description: `Signed in as ${session.user.access}`,
-        },
-      )
+      toast.success(`Welcome back, ${session.user.firstName || 'there'}`, {
+        description: `Signed in as ${session.user.role || 'Teller'}`,
+      })
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unable to sign in.'
@@ -60,14 +56,6 @@ export function LoginPage() {
       setSubmitting(false)
     }
   }
-
-  function quickSignIn(email: string) {
-    form.setValue('email', email, { shouldValidate: true })
-    form.setValue('password', 'teller-demo-1', { shouldValidate: true })
-    void completeLogin(form.getValues())
-  }
-
-  const demo = authService.getDemoUsers()
 
   return (
     <div className="flex min-h-dvh flex-col bg-space-grey">
@@ -131,38 +119,30 @@ export function LoginPage() {
                           <LockKeyhole className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
                           <Input
                             {...field}
-                            type="password"
+                            type={showPassword ? 'text' : 'password'}
                             placeholder="••••••••"
-                            className="pl-9"
+                            className="pl-9 pr-10"
                           />
+                          <button
+                            type="button"
+                            aria-label={
+                              showPassword ? 'Hide password' : 'Show password'
+                            }
+                            onClick={() => setShowPassword((v) => !v)}
+                            className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                          >
+                            {showPassword ? (
+                              <EyeOff className="size-4" />
+                            ) : (
+                              <Eye className="size-4" />
+                            )}
+                          </button>
                         </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-
-                <div className="flex items-center justify-between">
-                  <FormField
-                    control={form.control}
-                    name="remember"
-                    render={({ field }) => (
-                      <label className="flex cursor-pointer items-center gap-2 text-sm">
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                        Keep me signed in
-                      </label>
-                    )}
-                  />
-                  <button
-                    type="button"
-                    className="text-sm font-medium text-primary hover:underline"
-                  >
-                    Forgot password?
-                  </button>
-                </div>
 
                 <Button
                   type="submit"
@@ -179,49 +159,6 @@ export function LoginPage() {
             </Form>
           </CardContent>
         </Card>
-
-        <div className="mt-4 flex w-full max-w-sm flex-col gap-2">
-          <div className="flex items-center gap-3">
-            <span className="h-px flex-1 bg-white/10" />
-            <span className="text-[11px] font-medium tracking-wider text-white/40 uppercase">
-              Demo accounts
-            </span>
-            <span className="h-px flex-1 bg-white/10" />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              disabled={submitting}
-              onClick={() => quickSignIn(demo.maker.email)}
-              className="rounded-lg border border-white/15 bg-white/5 px-3 py-2.5 text-left transition-colors hover:bg-white/10"
-            >
-              <span className="block text-[13px] font-semibold text-white">
-                Sign in as Maker
-              </span>
-              <span className="block text-[11px] text-white/45">
-                Initiate transfers
-              </span>
-            </button>
-            <button
-              type="button"
-              disabled={submitting}
-              onClick={() => quickSignIn(demo.checker.email)}
-              className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-2.5 text-left transition-colors hover:bg-primary/20"
-            >
-              <span className="block text-[13px] font-semibold text-white">
-                Sign in as Checker
-              </span>
-              <span className="block text-[11px] text-white/45">
-                Approve transfers
-              </span>
-            </button>
-          </div>
-        </div>
-
-        <p className="mt-6 text-center text-xs text-white/40">
-          Demo build — enter any password to continue. Roles control access to
-          the approval queue.
-        </p>
       </div>
     </div>
   )

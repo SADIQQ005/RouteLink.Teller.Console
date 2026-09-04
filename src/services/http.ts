@@ -8,6 +8,7 @@ import {
   AUTH_TOKEN_KEY,
   REQUEST_TIMEOUT_MS,
 } from '@/services/config'
+import { getSecureItem, removeSecureItem, setSecureItem } from '@/services/storage'
 
 export class ApiError extends Error {
   status: number
@@ -20,19 +21,15 @@ export class ApiError extends Error {
 }
 
 export function getToken(): string | null {
-  try {
-    return localStorage.getItem(AUTH_TOKEN_KEY)
-  } catch {
-    return null
-  }
+  return getSecureItem(AUTH_TOKEN_KEY)
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem(AUTH_TOKEN_KEY, token)
+  setSecureItem(AUTH_TOKEN_KEY, token)
 }
 
 export function clearToken(): void {
-  localStorage.removeItem(AUTH_TOKEN_KEY)
+  removeSecureItem(AUTH_TOKEN_KEY)
 }
 
 /**

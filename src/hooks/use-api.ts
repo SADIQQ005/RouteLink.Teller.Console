@@ -6,16 +6,16 @@ import {
 
 import {
   api,
-  type ApprovalItem,
   type AuditEntry,
   type DashboardStats,
   type ReconciliationItem,
   type Transaction,
   type TransactionLimit,
-  type TransactionStatus,
   type ApprovalRole,
   type UserRecord,
 } from '@/lib/data'
+import type { ApprovalsResult } from '@/services/approvals'
+import type { ApprovalQueueParams } from '@/services/baas/types'
 
 export const queryKeys = {
   stats: ['stats'] as const,
@@ -42,57 +42,22 @@ export function useTransactions() {
   })
 }
 
-export function useCreateTransaction() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: api.createTransaction,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.transactions })
-      queryClient.invalidateQueries({ queryKey: queryKeys.stats })
-    },
+export function useApprovals(
+  params: ApprovalQueueParams = {},
+  enabled = true,
+) {
+  return useQuery<ApprovalsResult>({
+    queryKey: [...queryKeys.approvals, params],
+    queryFn: () => api.getApprovals(params),
+    enabled,
   })
 }
 
-export function useUpdateTransactionStatus() {
+export function useRejectApproval() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({
-      id,
-      status,
-    }: {
-      id: string
-      status: TransactionStatus
-    }) => api.updateTransactionStatus(id, status),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.transactions })
-    },
-  })
-}
-
-export function useApprovals() {
-  return useQuery<ApprovalItem[]>({
-    queryKey: queryKeys.approvals,
-    queryFn: api.getApprovals,
-  })
-}
-
-export function useResolveApproval() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (args: {
-      id: string
-      decision: 'approve' | 'reject'
-      otpId?: string
-      otpCode?: string
-      reason?: string
-    }) =>
-      api.resolveApproval(
-        args.id,
-        args.decision,
-        args.otpId,
-        args.otpCode,
-        args.reason,
-      ),
+    mutationFn: (args: { id: string; reason: string }) =>
+      api.rejectApproval(args.id, args.reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.approvals })
       queryClient.invalidateQueries({ queryKey: queryKeys.stats })

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import {
   AlertCircle,
@@ -11,10 +11,7 @@ import {
   Eye,
   FileText,
   Inbox,
-  LoaderCircle,
   MessageSquare,
-  RefreshCw,
-  ShieldAlert,
   ShieldCheck,
   Sparkles,
   User,
@@ -42,14 +39,16 @@ import { Textarea } from '@/components/ui/textarea'
 import { PageHeader } from '@/components/ui/page-header'
 import {
   useApprovals,
-  useResolveApproval,
+  useRejectApproval,
 } from '@/hooks/use-api'
 import { formatCurrency } from '@/lib/format'
 import { downloadBlob } from '@/lib/download'
 import { cn } from '@/lib/utils'
 import type { ApprovalItem } from '@/lib/data'
-import * as otpService from '@/services/otp'
+import { approveTransfer, verifyApprovalOtp } from '@/services/baas/transfers'
+import { QueuePriority } from '@/services/baas/types'
 import { useAppSelector } from '@/store'
+import { canApprove } from '@/store/slices/auth-slice'
 
 type Filter = 'All' | 'High priority' | 'Medium priority' | 'Low priority'
 
@@ -214,9 +213,9 @@ function downloadSupportingDocument(doc: string, item: ApprovalItem) {
 }
 
 export function ApprovalQueuePage() {
-  const { data: approvals, isLoading } = useApprovals()
-  const resolve = useResolveApproval()
+  const reject = useRejectApproval()
   const user = useAppSelector((state) => state.auth.user)
+  const canSign = canApprove(user)
   const [filter, setFilter] = useState<Filter>('All')
   const [page, setPage] = useState(1)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -225,55 +224,42 @@ export function ApprovalQueuePage() {
   const [rejectReason, setRejectReason] = useState('')
   const [approveTargets, setApproveTargets] = useState<ApprovalItem[]>([])
   const [otpCode, setOtpCode] = useState('')
-  const [otpId, setOtpId] = useState<string | null>(null)
   const [otpSentTo, setOtpSentTo] = useState<string>('')
-  const [otpExpiresAt, setOtpExpiresAt] = useState<number>(0)
-  const [otpResendAfter, setOtpResendAfter] = useState<number>(0)
-  const [sendingOtp, setSendingOtp] = useState(false)
+  const [approving, setApproving] = useState(false)
   const [otpError, setOtpError] = useState<string | null>(null)
-  const [nowTick, setNowTick] = useState(0)
 
-  useEffect(() => {
-    if (approveTargets.length === 0) return
-    const id = window.setInterval(() => setNowTick((t) => t + 1), 1000)
-    return () => window.clearInterval(id)
-  }, [approveTargets.length])
-
-  const counts = {
-    total: approvals?.length ?? 0,
-    high: approvals?.filter((a) => a.priority === 'High').length ?? 0,
-    volume: approvals?.reduce((sum, a) => sum + a.amount, 0) ?? 0,
+  const priorityFilter: Record<Filter, QueuePriority | undefined> = {
+    All: undefined,
+    'High priority': QueuePriority.High,
+    'Medium priority': QueuePriority.Medium,
+    'Low priority': QueuePriority.Low,
   }
 
-  const visible = useMemo(() => {
-    if (!approvals) return []
-    if (filter === 'High priority')
-      return approvals.filter((a) => a.priority === 'High')
-    if (filter === 'Medium priority')
-      return approvals.filter((a) => a.priority === 'Medium')
-    if (filter === 'Low priority')
-      return approvals.filter((a) => a.priority === 'Low')
-    return approvals
-  }, [approvals, filter])
+  const { data: approvals, isLoading } = useApprovals({
+    priority: priorityFilter[filter],
+    page: page,
+    pageSize: PAGE_SIZE,
+  })
 
-  const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
+  const snapshot = approvals?.snapshot
+
+  const counts = {
+    total: snapshot?.totalInQueue ?? 0,
+    volume: snapshot?.totalVolumeInQueue ?? 0,
+  }
+
+  const pageItems = approvals?.items ?? []
+  const totalMatching = approvals?.totalMatchingFilter ?? 0
+  const totalPages = Math.max(1, Math.ceil(totalMatching / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
-  const from = visible.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
-  const to = Math.min(currentPage * PAGE_SIZE, visible.length)
-  const pageItems = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const from = totalMatching === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
+  const to = Math.min(currentPage * PAGE_SIZE, totalMatching)
 
   const selectedItems =
-    approvals?.filter((a) => selectedIds.includes(a.id)) ?? []
+    approvals?.items.filter((a) => selectedIds.includes(a.id)) ?? []
 
   const allVisibleSelected =
     pageItems.length > 0 && pageItems.every((a) => selectedIds.includes(a.id))
-
-  const now = useMemo(() => Date.now(), [nowTick])
-  const otpExpiresInMs = Math.max(0, otpExpiresAt - now)
-  const otpExpiresInMin = Math.floor(otpExpiresInMs / 60000)
-  const otpExpiresInSec = Math.floor((otpExpiresInMs % 60000) / 1000)
-  const canResendOtp = otpResendAfter > 0 && now >= otpResendAfter && !sendingOtp
-  const resendCountdown = Math.max(0, Math.ceil((otpResendAfter - now) / 1000))
 
   function selectFilter(f: Filter) {
     setFilter(f)
@@ -287,6 +273,7 @@ export function ApprovalQueuePage() {
   }
 
   function toggle(item: ApprovalItem) {
+    if (!canSign) return
     setSelectedIds((prev) =>
       prev.includes(item.id)
         ? prev.filter((id) => id !== item.id)
@@ -295,6 +282,7 @@ export function ApprovalQueuePage() {
   }
 
   function toggleAll() {
+    if (!canSign) return
     setSelectedIds((prev) =>
       allVisibleSelected
         ? prev.filter((id) => !pageItems.some((a) => a.id === id))
@@ -302,36 +290,17 @@ export function ApprovalQueuePage() {
     )
   }
 
-  async function sendCheckerOtp(items: ApprovalItem[]) {
-    setSendingOtp(true)
-    setOtpError(null)
-    try {
-      const resp = await otpService.sendCheckerOtp({
-        checkerUserId: user.id,
-        checkerEmail: user.email,
-        transactionIds: items.map((i) => i.id),
-        references: items.map((i) => i.reference),
-      })
-      setOtpId(resp.otpId)
-      setOtpSentTo(resp.sentTo)
-      setOtpExpiresAt(new Date(resp.expiresAt).getTime())
-      setOtpResendAfter(Date.now() + resp.resendAfter)
-      setOtpCode('')
-      toast.success('Approval OTP sent', {
-        description: `Verification code sent to ${resp.sentTo}. Enter the 6-digit code to sign off.`,
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not send OTP'
-      toast.error('Failed to send OTP', { description: message })
-      setOtpError(message)
-    } finally {
-      setSendingOtp(false)
-    }
+  function maskEmail(email: string) {
+    const [local, domain] = email.split('@')
+    if (!domain) return email
+    const head = local.slice(0, 2)
+    const tail = local.slice(-2)
+    return `${head}${'•'.repeat(Math.max(1, local.length - 4))}${tail}@${domain}`
   }
 
   async function approveMany(items: ApprovalItem[]) {
-    if (!otpId) {
-      setOtpError('OTP session missing. Please request a new code.')
+    if (!canSign) {
+      setOtpError('Only checkers can approve queue items.')
       return
     }
     if (otpCode.trim().length !== 6) {
@@ -339,16 +308,13 @@ export function ApprovalQueuePage() {
       return
     }
     setOtpError(null)
+    setApproving(true)
     try {
       await Promise.all(
-        items.map((item) =>
-          resolve.mutateAsync({
-            id: item.id,
-            decision: 'approve',
-            otpId: otpId,
-            otpCode: otpCode.trim(),
-          }),
-        ),
+        items.map(async (item) => {
+          await approveTransfer(item.id, { checkerEmail: user.email })
+          await verifyApprovalOtp(item.id, { code: otpCode.trim() })
+        }),
       )
       toast.success(
         items.length === 1
@@ -358,36 +324,30 @@ export function ApprovalQueuePage() {
       setSelectedIds([])
       setApproveTargets([])
       setOtpCode('')
-      setOtpId(null)
       setOtpSentTo('')
-      setOtpExpiresAt(0)
-      setOtpResendAfter(0)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'One or more approvals failed — please retry'
       setOtpError(message)
       toast.error('Approval failed', { description: message })
+    } finally {
+      setApproving(false)
     }
   }
 
   function confirmApprove(items: ApprovalItem[]) {
     setOtpCode('')
-    setOtpId(null)
     setOtpError(null)
+    setOtpSentTo(maskEmail(user.email || ''))
     setApproveTargets(items)
-    void sendCheckerOtp(items)
-  }
-
-  async function resendCheckerOtp() {
-    await sendCheckerOtp(approveTargets)
   }
 
   async function rejectMany(items: ApprovalItem[]) {
+    if (!canSign) return
     try {
       await Promise.all(
         items.map((item) =>
-          resolve.mutateAsync({
+          reject.mutateAsync({
             id: item.id,
-            decision: 'reject',
             reason: rejectReason,
           }),
         ),
@@ -424,7 +384,7 @@ export function ApprovalQueuePage() {
               Queue snapshot
             </Badge>
             <h2 className="mt-3 text-xl font-bold tracking-tight sm:text-2xl">
-              {counts.total} payment{counts.total === 1 ? '' : 's'} awaiting authority
+              {isLoading ? '…' : counts.total} payment{counts.total === 1 ? '' : 's'} awaiting authority
             </h2>
             <p className="mt-1 max-w-xl text-sm text-muted-foreground">
               Review, verify and sign off on payment requests routed to you.
@@ -436,24 +396,24 @@ export function ApprovalQueuePage() {
               Total volume in queue
             </span>
             <span className="text-2xl font-bold tabular-nums tracking-tight">
-              {formatCurrency(counts.volume)}
+              {isLoading ? '…' : formatCurrency(counts.volume)}
             </span>
           </div>
         </div>
 
-        <div className="relative mt-5 grid grid-cols-2 gap-3">
+        <div className="relative mt-5 grid gap-3 sm:grid-cols-2">
           {[
             {
-              label: 'Awaiting your action',
-              value: String(counts.total),
-              icon: CheckCheck,
+              label: 'Total in queue',
+              value: isLoading ? '…' : String(counts.total),
+              icon: Inbox,
               tone: 'bg-primary/15 text-primary',
             },
             {
-              label: 'High priority',
-              value: String(counts.high),
-              icon: ShieldAlert,
-              tone: 'bg-red-100 text-red-600',
+              label: 'Total volume',
+              value: isLoading ? '…' : formatCurrency(counts.volume),
+              icon: Wallet,
+              tone: 'bg-emerald-100 text-emerald-600',
             },
           ].map((s) => (
             <div
@@ -503,15 +463,17 @@ export function ApprovalQueuePage() {
           </div>
 
           <div className="rounded-lg border bg-muted/30 px-3 py-2 my-3 text-xs font-medium text-muted-foreground">
-            {selectedIds.length === 0
-              ? 'Select one or more items to approve or reject in bulk. Click the eye icon to view full request details.'
-              : `${selectedIds.length} item${selectedIds.length === 1 ? '' : 's'} selected · ${formatCurrency(
-                  selectedItems.reduce((s, a) => s + a.amount, 0),
-                )}`}
+            {canSign
+              ? selectedIds.length === 0
+                ? 'Select one or more items to approve or reject in bulk. Click the eye icon to view full request details.'
+                : `${selectedIds.length} item${selectedIds.length === 1 ? '' : 's'} selected · ${formatCurrency(
+                    selectedItems.reduce((s, a) => s + a.amount, 0),
+                  )}`
+              : 'You are in read-only view. Click the eye icon to view full request details — only checkers can approve or reject.'}
           </div>
 
           {/* Select-all bar for calendar view */}
-          {!isLoading && pageItems.length > 0 && (
+          {canSign && !isLoading && pageItems.length > 0 && (
             <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
               <div className="flex items-center gap-2">
                 <Checkbox
@@ -555,7 +517,7 @@ export function ApprovalQueuePage() {
                 </div>
               ))}
 
-            {!isLoading && visible.length === 0 && (
+            {!isLoading && totalMatching === 0 && (
               <div className="rounded-xl border py-14 text-center text-muted-foreground">
                 <Inbox className="mx-auto mb-3 size-10 opacity-50" />
                 <p className="font-medium">Nothing in the queue for this filter.</p>
@@ -660,40 +622,46 @@ export function ApprovalQueuePage() {
                               </p>
                             </div>
                             <div className="flex items-center gap-1.5">
-                              <div className="flex items-center gap-1 mr-1">
-                                <Checkbox
-                                  checked={checked}
-                                  onCheckedChange={() => toggle(a)}
-                                  aria-label={`Select ${a.reference}`}
-                                />
-                                <Button
-                                  size="icon-sm"
-                                  variant="ghost"
-                                  aria-label={`View ${a.reference}`}
-                                  onClick={() => setDetail(a)}
-                                >
-                                  <Eye className="size-4" />
-                                </Button>
-                              </div>
+                              {canSign && (
+                                <div className="flex items-center gap-1 mr-1">
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={() => toggle(a)}
+                                    aria-label={`Select ${a.reference}`}
+                                  />
+                                </div>
+                              )}
                               <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                disabled={resolve.isPending}
-                                onClick={() => {
-                                  setRejectReason('')
-                                  setRejectTargets([a])
-                                }}
+                                size="icon-sm"
+                                variant="ghost"
+                                aria-label={`View ${a.reference}`}
+                                onClick={() => setDetail(a)}
                               >
-                                Reject
+                                <Eye className="size-4" />
                               </Button>
-                              <Button
-                                size="sm"
-                                disabled={resolve.isPending}
-                                onClick={() => confirmApprove([a])}
-                              >
-                                Approve
-                              </Button>
+                              {canSign && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                    disabled={reject.isPending}
+                                    onClick={() => {
+                                      setRejectReason('')
+                                      setRejectTargets([a])
+                                    }}
+                                  >
+                                    Reject
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    disabled={reject.isPending}
+                                    onClick={() => confirmApprove([a])}
+                                  >
+                                    Approve
+                                  </Button>
+                                </>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -705,7 +673,7 @@ export function ApprovalQueuePage() {
           </div>
 
           {/* Pagination */}
-          {!isLoading && visible.length > 0 && (
+          {!isLoading && totalMatching > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
               <p className="text-xs text-muted-foreground">
                 Showing{' '}
@@ -714,7 +682,7 @@ export function ApprovalQueuePage() {
                 </span>{' '}
                 of{' '}
                 <span className="font-semibold text-foreground">
-                  {visible.length}
+                  {totalMatching}
                 </span>{' '}
                 requests
               </p>
@@ -755,7 +723,7 @@ export function ApprovalQueuePage() {
             </div>
           )}
 
-          {selectedItems.length > 1 && (
+          {canSign && selectedItems.length > 1 && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-space-grey p-3.5 text-sidebar-foreground">
               <div className="flex items-center gap-2 text-sm">
                 <CheckCheck className="size-4 text-orange" />
@@ -770,7 +738,7 @@ export function ApprovalQueuePage() {
                 <Button
                   variant="outline"
                   className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white"
-                  disabled={resolve.isPending}
+                  disabled={reject.isPending}
                   onClick={() => setSelectedIds([])}
                 >
                   Clear
@@ -778,7 +746,7 @@ export function ApprovalQueuePage() {
                 <Button
                   variant="outline"
                   className="border-white/15 bg-white/5 text-red-300 hover:bg-destructive/80 hover:text-white"
-                  disabled={resolve.isPending}
+                  disabled={reject.isPending}
                   onClick={() => {
                     setRejectReason('')
                     setRejectTargets(selectedItems)
@@ -787,7 +755,7 @@ export function ApprovalQueuePage() {
                   Reject all
                 </Button>
                 <Button
-                  disabled={resolve.isPending}
+                  disabled={reject.isPending}
                   onClick={() => confirmApprove(selectedItems)}
                 >
                   <CheckCheck className="size-4" />
@@ -908,27 +876,31 @@ export function ApprovalQueuePage() {
               <DialogClose asChild>
                 <Button variant="outline">Close</Button>
               </DialogClose>
-              <Button
-                variant="destructive"
-                disabled={resolve.isPending}
-                onClick={() => {
-                  setRejectReason('')
-                  setRejectTargets([detail])
-                  setDetail(null)
-                }}
-              >
-                Reject
-              </Button>
-              <Button
-                disabled={resolve.isPending}
-                onClick={() => {
-                  setDetail(null)
-                  confirmApprove([detail])
-                }}
-              >
-                <CheckCheck className="size-4" />
-                Approve
-              </Button>
+              {canSign && (
+                <>
+                  <Button
+                    variant="destructive"
+                    disabled={reject.isPending}
+                    onClick={() => {
+                      setRejectReason('')
+                      setRejectTargets([detail])
+                      setDetail(null)
+                    }}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    disabled={reject.isPending}
+                    onClick={() => {
+                      setDetail(null)
+                      confirmApprove([detail])
+                    }}
+                  >
+                    <CheckCheck className="size-4" />
+                    Approve
+                  </Button>
+                </>
+              )}
             </DialogFooter>
           </DialogContent>
         )}
@@ -1020,7 +992,7 @@ export function ApprovalQueuePage() {
             </DialogClose>
             <Button
               variant="destructive"
-              disabled={resolve.isPending || rejectReason.trim().length < 5}
+              disabled={reject.isPending || rejectReason.trim().length < 5}
               onClick={() => rejectMany(rejectTargets)}
             >
               Reject transaction{rejectTargets.length === 1 ? '' : 's'}
@@ -1036,7 +1008,7 @@ export function ApprovalQueuePage() {
           if (!o) {
             setApproveTargets([])
             setOtpCode('')
-            setOtpId(null)
+            setOtpSentTo('')
             setOtpError(null)
           }
         }}
@@ -1069,25 +1041,18 @@ export function ApprovalQueuePage() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3">
-            {sendingOtp ? (
-              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-                <LoaderCircle className="size-4 animate-spin text-primary" />
-                Sending verification code to your registered device…
+            {otpSentTo ? (
+              <div className="flex items-center gap-2 rounded-lg border bg-emerald-50 dark:bg-emerald-500/10 px-4 py-3 text-sm">
+                <ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
+                <span className="font-medium text-emerald-800 dark:text-emerald-300">
+                  Code sent to {otpSentTo}
+                </span>
               </div>
-            ) : otpSentTo ? (
-              <div className="flex items-center justify-between gap-2 rounded-lg border bg-emerald-50 dark:bg-emerald-500/10 px-4 py-3 text-sm">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
-                  <span className="font-medium text-emerald-800 dark:text-emerald-300">
-                    Code sent to {otpSentTo}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 text-xs font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
-                  <Clock className="size-3.5" />
-                  {otpExpiresInMin}:{String(otpExpiresInSec).padStart(2, '0')}
-                </div>
-              </div>
-            ) : null}
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                A verification code is being sent to your registered device.
+              </p>
+            )}
 
             <div className="grid gap-2">
               <Label htmlFor="checker-otp">Enter 6-digit OTP</Label>
@@ -1106,36 +1071,13 @@ export function ApprovalQueuePage() {
                   setOtpError(null)
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && otpCode.length === 6 && otpId) {
+                  if (e.key === 'Enter' && otpCode.length === 6) {
                     void approveMany(approveTargets)
                   }
                 }}
-                disabled={sendingOtp || !otpId}
+                disabled={approving}
               />
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <button
-                  type="button"
-                  disabled={!canResendOtp || sendingOtp}
-                  onClick={resendCheckerOtp}
-                  className={cn(
-                    'inline-flex items-center gap-1 font-medium transition-colors',
-                    canResendOtp && !sendingOtp
-                      ? 'text-primary hover:underline'
-                      : 'cursor-not-allowed text-muted-foreground/60',
-                  )}
-                >
-                  <RefreshCw
-                    className={cn(
-                      'size-3.5',
-                      sendingOtp && 'animate-spin',
-                    )}
-                  />
-                  {sendingOtp
-                    ? 'Sending…'
-                    : canResendOtp
-                      ? 'Resend code'
-                      : `Resend available in ${resendCountdown}s`}
-                </button>
+              <div className="flex items-center justify-end text-xs text-muted-foreground">
                 <span className="tabular-nums">
                   {otpCode.length}/6 digits
                 </span>
@@ -1154,19 +1096,18 @@ export function ApprovalQueuePage() {
           </div>
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
+              <Button variant="outline" disabled={approving}>
+                Cancel
+              </Button>
             </DialogClose>
             <Button
               disabled={
-                resolve.isPending ||
-                sendingOtp ||
-                otpCode.length !== 6 ||
-                !otpId
+                approving || otpCode.length !== 6
               }
               onClick={() => approveMany(approveTargets)}
             >
               <CheckCheck className="size-4" />
-              {resolve.isPending
+              {approving
                 ? 'Approving…'
                 : `Approve${approveTargets.length > 1 ? ` ${approveTargets.length}` : ''}`}
             </Button>

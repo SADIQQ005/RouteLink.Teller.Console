@@ -40,6 +40,7 @@ import { downloadCsv } from '@/lib/download'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useAppSelector } from '@/store'
+import { canTransfer } from '@/store/slices/auth-slice'
 
 const HIGH_PRIORITY_AMOUNT = 1_000_000
 
@@ -188,12 +189,14 @@ export function DashboardPage() {
           <Download className="size-4" />
           Export report
         </Button>
-        <Button asChild>
-          <Link to="/payments/new">
-            <Plus className="size-4" />
-            New Transfer
-          </Link>
-        </Button>
+        {canTransfer(user) ? (
+          <Button asChild>
+            <Link to="/payments/new">
+              <Plus className="size-4" />
+              New Transfer
+            </Link>
+          </Button>
+        ) : null}
       </PageHeader>
 
       {/* Transaction snapshot hero */}
@@ -363,7 +366,7 @@ export function DashboardPage() {
             </Button>
           </CardHeader>
           <CardContent className="gap-0 pt-0">
-            {approvals?.slice(0, 4).map((a, idx) => (
+            {approvals?.items.slice(0, 4).map((a, idx) => (
               <div
                 key={a.id}
                 className="group flex items-center justify-between gap-3 py-3.5 animate-fade-in-up"
@@ -409,7 +412,7 @@ export function DashboardPage() {
                 ))}
               </div>
             )}
-            {approvals && approvals.length === 0 && (
+            {approvals && approvals.items.length === 0 && (
               <div className="py-8 text-center text-sm text-muted-foreground">
                 All caught up! 🎉
               </div>

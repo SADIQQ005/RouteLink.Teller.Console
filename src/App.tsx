@@ -5,6 +5,8 @@ import { AppLayout } from '@/components/layout/app-layout'
 import { RequireAccess } from '@/components/auth/require-access'
 import { Loader } from '@/components/ui/loader'
 import { useAppSelector } from '@/store'
+import { canTransfer, type User } from '@/store/slices/auth-slice'
+import { useSessionExpiryWatcher } from '@/hooks/use-session-expiry'
 
 const LoginPage = lazy(() =>
   import('@/pages/login').then((m) => ({ default: m.LoginPage })),
@@ -57,6 +59,8 @@ const ProfilePage = lazy(() =>
 export default function App() {
   const isAuthenticated = useAppSelector((state) => state.auth.isAuthenticated)
 
+  useSessionExpiryWatcher()
+
   if (!isAuthenticated) {
     return (
       <Suspense
@@ -78,7 +82,7 @@ export default function App() {
       <Route element={<AppLayout />}>
         <Route
           index
-          element={<Navigate to="/payments/new" replace />}
+          element={<HomeRedirect />}
         />
         <Route
           path="dashboard"
@@ -91,9 +95,11 @@ export default function App() {
         <Route
           path="payments/new"
           element={
-            <LazyPage>
-              <NewTransactionPage />
-            </LazyPage>
+            <RequireAccess roles={['Maker', 'Teller']}>
+              <LazyPage>
+                <NewTransactionPage />
+              </LazyPage>
+            </RequireAccess>
           }
         />
         <Route
@@ -107,7 +113,7 @@ export default function App() {
         <Route
           path="account/approval-queue"
           element={
-            <RequireAccess access="Checker">
+            <RequireAccess roles={['Maker', 'Teller', 'Checker']}>
               <LazyPage>
                 <ApprovalQueuePage />
               </LazyPage>
@@ -170,6 +176,14 @@ export default function App() {
 
 function LazyPage({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageFallback />}>{children}</Suspense>
+}
+
+function HomeRedirect() {
+  const user: User = useAppSelector((state) => state.auth.user)
+  if (canTransfer(user)) {
+    return <Navigate to="/payments/new" replace />
+  }
+  return <Navigate to="/account/approval-queue" replace />
 }
 
 function PageFallback() {
