@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
@@ -177,6 +177,8 @@ export function NewTransactionPage() {
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues,
+    mode: 'onChange',
+    reValidateMode: 'onChange',
   })
 
   const amount = form.watch('amount')
@@ -224,12 +226,20 @@ export function NewTransactionPage() {
     total > (sourceBalance ?? Number.POSITIVE_INFINITY)
   const lookingUp = sourceLookup.status === 'looking-up'
 
-  async function handleEnquiry() {
+  const fieldsValid = form.formState.isValid
+  const canSubmit =
+    fieldsValid && balanceResolved && !insufficient && documents.length > 0
+
+  const enquirySeq = useRef(0)
+
+  async function performEnquiry() {
+    const seq = ++enquirySeq.current
     const valid = await form.trigger(['bank', 'accountNumber'])
-    if (!valid) return
+    if (!valid || seq !== enquirySeq.current) return
     setEnquiring(true)
     setEnquiryName(null)
     await new Promise((r) => setTimeout(r, 1100))
+    if (seq !== enquirySeq.current) return
     const index =
       parseInt(form.getValues('accountNumber').slice(-2), 10) %
       ENQUIRY_NAMES.length
@@ -238,6 +248,17 @@ export function NewTransactionPage() {
     form.setValue('beneficiaryName', name, { shouldValidate: true })
     setEnquiring(false)
   }
+
+  function handleEnquiry() {
+    void performEnquiry()
+  }
+
+  useEffect(() => {
+    if (bank && accountNumber.length === 10) {
+      void performEnquiry()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bank, accountNumber])
 
   function addFiles(fileList: FileList | null) {
     const files = Array.from(fileList ?? []).filter((f) => ALLOWED.test(f.name))
@@ -842,7 +863,7 @@ export function NewTransactionPage() {
           <Button
             size="lg"
             className="w-full"
-            disabled={sendingOtp || lookingUp || insufficient}
+            disabled={sendingOtp || !canSubmit}
             onClick={form.handleSubmit(requestSubmit)}
           >
             <ArrowRight className="size-4" />
