@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
-import { CircleDollarSign, Eye, EyeOff, LockKeyhole, LoaderCircle, Mail } from 'lucide-react'
+import { Eye, EyeOff, LockKeyhole, LoaderCircle, Mail } from 'lucide-react'
 import { z } from 'zod'
 
 import { Button } from '@/components/ui/button'
@@ -60,20 +60,15 @@ export function LoginPage() {
   return (
     <div className="flex min-h-dvh flex-col bg-space-grey">
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-12">
-        <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <div className="flex size-12 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-orange-950/50">
-            <CircleDollarSign className="size-6" />
+        <div className="mb-5 flex flex-col items-center text-center">
+            <img
+              src="/mfb_assets_logo.png"
+              alt="RoutePay logo"
+              className="size-36 shrink-0 object-contain"
+            />
           </div>
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-white">
-              RouteLink{' '}
-              <span className="font-normal text-white/70">Teller</span>
-            </h1>
-            <p className="text-sm text-white/50">Secure Teller Console</p>
-          </div>
-        </div>
 
-        <Card className="w-full max-w-sm border-none shadow-2xl shadow-black/40">
+        <Card className="w-full max-w-sm border-none rounded-lg shadow-2xl shadow-black/40">
           <CardContent className="px-6 py-8">
             <div className="mb-6">
               <h2 className="text-lg font-semibold tracking-tight">Sign in</h2>

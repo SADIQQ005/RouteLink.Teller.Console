@@ -3,7 +3,6 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   ChevronDown,
   ChevronUp,
-  CircleDollarSign,
   Settings,
   LogOut,
 } from 'lucide-react'
@@ -32,9 +31,11 @@ function getBadgeStyle(badge: number) {
 function SidebarBrand() {
   return (
     <div className="flex shrink-0 items-center gap-3 px-6 pt-7 pb-2">
-      <div className="flex size-11 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-primary via-orange-500 to-orange-deep shadow-[0_1px_0_rgba(255,255,255,0.35)_inset,0_8px_24px_-8px_rgba(249,115,22,0.55)]">
-        <CircleDollarSign className="size-5.5 text-white drop-shadow-sm" />
-      </div>
+      <img
+        src="/mfb_assets_logo.png"
+        alt="RoutePay logo"
+        className="size-16 shrink-0 rounded-[12px] object-contain"
+      />
       <div className="min-w-0 pt-0.5">
         <p className="text-[15.5px] font-bold tracking-tight text-foreground">
           RouteLink
